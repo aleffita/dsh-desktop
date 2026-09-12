@@ -38,6 +38,7 @@ interface Channel {
   readonly lane: string
   readonly feed: string
   readonly appName: string
+  readonly artifactSlug: string
   readonly bundleId: string
   readonly accent: string
   readonly prerelease: boolean
@@ -80,6 +81,7 @@ function stampFlags(channel: Channel, product: string): string[] {
     `--config.productName=${channel.appName}`,
     `--config.appId=${channel.bundleId}`,
     `--config.publish.channel=${channel.feed}`,
+    `--config.artifactName=${channel.artifactSlug}-\${version}-\${arch}.\${ext}`,
     `--config.extraMetadata.fitaProduct=${product}`,
     `--config.extraMetadata.fitaChannel=${channel.slug}`,
     `--config.extraMetadata.fitaFeed=${channel.feed}`,
@@ -152,6 +154,7 @@ function build(channel: Channel, product: string, version: string, outputDir: st
     product,
     version,
     appName: channel.appName,
+    artifactSlug: channel.artifactSlug,
     bundleId: channel.bundleId,
     feed: channel.feed,
     feedFile,
@@ -189,6 +192,7 @@ function main(argv: readonly string[]): void {
     repository,
     version,
     appName: channel.appName,
+    artifactSlug: channel.artifactSlug,
     bundleId: channel.bundleId,
     feed: channel.feed,
     accent: channel.accent,

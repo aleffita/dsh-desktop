@@ -20,9 +20,11 @@ this directory honest.
   rewriting either.
 - A tag whose version carries a pre-release suffix produces a GitHub pre-release and the
   channel's `prerelease` flag is taken from the registry.
-- The shippable asset name is whatever the updater feed records in its `path:` entry, so
-  the DMG, its blockmap and the feed always ship under one name. Renaming an asset any
-  other way silently breaks auto-update.
+- The shippable asset name comes from the registry: `artifactSlug` feeds
+  `--config.artifactName`, so the DMG file, the blockmap and the feed's `path:` are the
+  same string produced in one place. electron-builder otherwise sanitises spaces in the
+  feed while the file on disk keeps them, and the updater then asks for an asset that was
+  never uploaded — the channel verifier fails the build when that drifts.
 - Nothing is published to npm. Installable builds are GitHub release assets; plugin
   packages go to GitHub Packages; CI artifacts exist for inspection only.
 

@@ -13,8 +13,8 @@ a channel name.
 | Dev | `dev` | `dev-v*` | `dev-mac.yml` | `DSH Fita Dev` | `#FF4D9D` pink |
 | Pull request | `PR-<n>-<slug>` | `pr-<n>-v*` | `pr-mac.yml` | `DSH Fita PR` | `#FF7A59` orange-pink |
 
-Each entry carries: `name`, `slug`, `lane`, `tag`, `feed`, `appName`, `bundleId`,
-`accent`, `onAccent`, `prerelease`, `installs`, `description`. A channel is added by
+Each entry carries: `name`, `slug`, `lane`, `tag`, `feed`, `appName`, `artifactSlug`,
+`bundleId`, `accent`, `onAccent`, `prerelease`, `installs`, `description`. A channel is added by
 adding an entry — the release workflow, the header and the installer read the same file.
 
 ## Why a distinct `bundleId` and `appName` per channel

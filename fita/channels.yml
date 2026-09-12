@@ -8,6 +8,9 @@
 # lane      git branch that produces the build (see docs/fita/GITFLOW.md)
 # tag       tag pattern the release workflow accepts for this channel
 # feed      electron-updater channel; the release carries `<feed>-mac.yml`
+# appName   the human app name; artifactSlug the URL-safe file prefix the
+#           updater feed records, so the DMG, the feed and the release asset
+#           always agree on one name
 # installs  where `fita install <slug>` puts the .app (no sudo required)
 
 version: 1
@@ -31,6 +34,7 @@ channels:
     tag: 'v*'
     feed: latest
     appName: DSH Fita
+    artifactSlug: DSH-Fita
     bundleId: ai.deepseek.dsh.desktop
     accent: '#1F6FEB'
     onAccent: '#FFFFFF'
@@ -44,6 +48,7 @@ channels:
     tag: 'beta-v*'
     feed: beta
     appName: DSH Fita Beta
+    artifactSlug: DSH-Fita-Beta
     bundleId: ai.deepseek.dsh.desktop.beta
     accent: '#E3B341'
     onAccent: '#111111'
@@ -57,6 +62,7 @@ channels:
     tag: 'dev-v*'
     feed: dev
     appName: DSH Fita Dev
+    artifactSlug: DSH-Fita-Dev
     bundleId: ai.deepseek.dsh.desktop.dev
     accent: '#FF4D9D'
     onAccent: '#FFFFFF'
@@ -70,6 +76,7 @@ channels:
     tag: 'pr-<number>-v*'
     feed: pr
     appName: DSH Fita PR
+    artifactSlug: DSH-Fita-PR
     bundleId: ai.deepseek.dsh.desktop.pr
     accent: '#FF7A59'
     onAccent: '#FFFFFF'
