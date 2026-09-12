@@ -130,13 +130,26 @@ jobs:
           for blockmap in "$source"/*.dmg.blockmap; do
             cp "$blockmap" "$destination/${slug}.dmg.blockmap"
           done
-          # The updater fetches this exact file name from the release; keep it.
-          if [[ -f "$source/latest-mac.yml" ]]; then
-            cp "$source/latest-mac.yml" "$destination/latest-mac.yml"
+          # The updater requests exactly the file name recorded in the feed, so
+          # the feed is the single source of truth for the shippable asset name.
+          feed="$source/latest-mac.yml"
+          if [[ -f "$feed" ]]; then
+            feedAsset="$(sed -n 's/^path:[[:space:]]*//p' "$feed" | head -1 | tr -d '"'"'"'')"
+            if [[ -z "$feedAsset" ]]; then
+              echo "::error::$feed records no path entry"
+              exit 1
+            fi
+            cp "${dmg[0]}" "$destination/$feedAsset"
+            if [[ -f "${dmg[0]}.blockmap" ]]; then
+              cp "${dmg[0]}.blockmap" "$destination/$feedAsset.blockmap"
+            fi
+            cp "$feed" "$destination/latest-mac.yml"
             echo "feed=latest-mac.yml" >> "$GITHUB_OUTPUT"
+            echo "feedAsset=$feedAsset" >> "$GITHUB_OUTPUT"
           else
             echo "::warning::electron-builder emitted no latest-mac.yml; the release carries no update feed"
             echo "feed=" >> "$GITHUB_OUTPUT"
+            echo "feedAsset=" >> "$GITHUB_OUTPUT"
           fi
           (cd "$destination" && shasum -a 256 ./* > SHA256SUMS.txt)
           ls -l "$destination"
