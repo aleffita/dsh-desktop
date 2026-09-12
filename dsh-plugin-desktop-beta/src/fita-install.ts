@@ -144,7 +144,13 @@ export interface FitaInstallOptions {
   readonly run?: FitaCommandRunner
 }
 
-function defaultRunner(command: string, args: readonly string[]): FitaCommandResult {
+/**
+ * Default command runner: a synchronous spawn.
+ * @param command - executable to run.
+ * @param args - its arguments.
+ * @returns the exit status.
+ */
+export function fitaDefaultRunner(command: string, args: readonly string[]): FitaCommandResult {
   const result = spawnSync(command, [...args], { encoding: 'utf8' })
   return { status: result.status ?? 1 }
 }
@@ -185,7 +191,7 @@ export async function runFitaHandover(options: FitaHandoverRunOptions): Promise<
     ...(options.run === undefined ? {} : { run: options.run }),
   })
   if (installed.status === 'failed') return { status: 'failed', reason: installed.reason }
-  const run = options.run ?? defaultRunner
+  const run = options.run ?? fitaDefaultRunner
   if (run('open', ['-a', installed.appPath]).status !== 0) {
     return { status: 'installed-not-relaunched', appPath: installed.appPath }
   }
@@ -198,7 +204,7 @@ export async function runFitaHandover(options: FitaHandoverRunOptions): Promise<
  * @returns the installed bundle, or a named failure. The mount is always released.
  */
 export async function installFitaPreparedBuild(options: FitaInstallOptions): Promise<FitaInstallResult> {
-  const run = options.run ?? defaultRunner
+  const run = options.run ?? fitaDefaultRunner
   let mount: string
   try {
     mount = mkdtempSync(join(tmpdir(), 'fita-install-'))

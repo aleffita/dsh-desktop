@@ -11,7 +11,7 @@
 import { existsSync, readdirSync, renameSync, rmSync } from 'node:fs'
 import { mkdir, rename } from 'node:fs/promises'
 import { join } from 'node:path'
-import type { FitaCommandResult, FitaCommandRunner } from './fita-install.ts'
+import { fitaDefaultRunner, type FitaCommandResult, type FitaCommandRunner } from './fita-install.ts'
 
 /** Reasons applying a payload can fail, named rather than collapsed. */
 export type FitaPayloadFailure = 'extract' | 'missing-payload' | 'io'
@@ -33,7 +33,7 @@ export interface FitaPayloadOptions {
   /** Directory the zip is extracted into; created when absent. */
   readonly staging: string
   /** Command runner, shared with the rest of the update path. */
-  readonly run: FitaCommandRunner
+  readonly run?: FitaCommandRunner
 }
 
 /** Name the previous payload is kept under until the new one has booted. */
@@ -50,6 +50,7 @@ function previousPath(path: string): string {
  * @returns the applied bundle, or a named failure.
  */
 export async function applyFitaPayload(options: FitaPayloadOptions): Promise<FitaPayloadResult> {
+  const run = options.run ?? fitaDefaultRunner
   const resources = join(options.appPath, 'Contents', 'Resources')
   const extracted = join(options.staging, 'extract')
   try {
@@ -59,7 +60,7 @@ export async function applyFitaPayload(options: FitaPayloadOptions): Promise<Fit
     return { status: 'failed', reason: 'io' }
   }
   // ditto preserves the code signature metadata a plain unzip would drop.
-  const extraction: FitaCommandResult = options.run('ditto', ['-x', '-k', options.zipPath, extracted])
+  const extraction: FitaCommandResult = run('ditto', ['-x', '-k', options.zipPath, extracted])
   if (extraction.status !== 0) return { status: 'failed', reason: 'extract' }
 
   const source = locateExtractedApp(extracted)
