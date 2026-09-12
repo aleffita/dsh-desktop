@@ -39,7 +39,10 @@ guessing whether the fork is current.
 ## Gates a change must pass before it is a release
 
 1. `yarn check` on the workspace it touches (layout, variants, vendored runtime, bilingual
-   docs, market dependency direction, package and runtime gates).
+   docs, market dependency direction, package and runtime gates). The variants gate covers
+   `tests/` and `scripts/` too, where the two editions legitimately differ: it declares those
+   differences and fails when one *disappears*, which is what copying a file from one edition
+   over the other looks like.
 2. `yarn workspace dsh-plugin-desktop check:mac-package` for anything that reaches the app.
 3. `yarn fita list` sanity when the change touches `fita/channels.yml`.
 4. `yarn check:diff` before pushing: the CI `changes` job runs the same whitespace check over
