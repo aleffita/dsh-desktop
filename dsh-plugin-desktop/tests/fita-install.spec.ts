@@ -2,7 +2,13 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { installFitaPreparedBuild, type FitaCommandResult } from '../src/fita-install.ts'
+import { fitaChannel } from '../src/fita-channel.ts'
+import {
+  fitaInstallPath,
+  installFitaPreparedBuild,
+  planFitaHandover,
+  type FitaCommandResult,
+} from '../src/fita-install.ts'
 
 const roots: string[] = []
 function scratch(): string {
@@ -125,5 +131,55 @@ describe('installing a prepared build', () => {
     })
     // The app is unsigned, so a quarantine that cannot be cleared is not an install.
     expect(quarantine).toEqual({ status: 'failed', reason: 'quarantine' })
+  })
+})
+
+describe('hand-over plan', () => {
+  const dev = fitaChannel('dev')!
+  const destination = fitaInstallPath(dev, '/home/operator')
+
+  it('installs the running channel own build over its own bundle', () => {
+    expect(planFitaHandover({
+      runningChannel: dev,
+      preparedChannel: 'dev',
+      preparedPath: '/cache/dev/a.dmg',
+      destination,
+      home: '/home/operator',
+    })).toEqual({ status: 'install', dmgPath: '/cache/dev/a.dmg', destination })
+  })
+
+  it('resolves the channel path from the registry, not from the caller', () => {
+    expect(fitaInstallPath(dev, '/home/operator')).toBe('/home/operator/Applications/DSH Fita Dev.app')
+    expect(fitaInstallPath(fitaChannel('beta')!, '/home/operator')).toBe('/home/operator/Applications/DSH Fita Beta.app')
+  })
+
+  it('refuses a build that belongs to another channel', () => {
+    expect(planFitaHandover({
+      runningChannel: dev,
+      preparedChannel: 'beta',
+      preparedPath: '/cache/beta/a.dmg',
+      destination,
+      home: '/home/operator',
+    })).toEqual({ status: 'refused', reason: 'not-this-channel' })
+  })
+
+  it('refuses a build with no channel at all', () => {
+    expect(planFitaHandover({
+      runningChannel: undefined,
+      preparedChannel: 'dev',
+      preparedPath: '/cache/dev/a.dmg',
+      destination,
+      home: '/home/operator',
+    })).toEqual({ status: 'refused', reason: 'unknown-channel' })
+  })
+
+  it('refuses to install outside the channel own path', () => {
+    expect(planFitaHandover({
+      runningChannel: dev,
+      preparedChannel: 'dev',
+      preparedPath: '/cache/dev/a.dmg',
+      destination: '/Applications/DSH Fita Dev.app',
+      home: '/home/operator',
+    })).toEqual({ status: 'refused', reason: 'destination-mismatch' })
   })
 })

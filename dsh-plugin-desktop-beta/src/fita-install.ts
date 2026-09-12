@@ -14,8 +14,64 @@
 import { spawnSync } from 'node:child_process'
 import { existsSync, mkdtempSync, readdirSync, rmSync } from 'node:fs'
 import { mkdir } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
+import { homedir, tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
+import type { FitaChannel } from './fita-channel.ts'
+
+/**
+ * Where a channel's app bundle belongs on this machine.
+ *
+ * The registry records `~/Applications/<appName>.app`; installing anywhere else would
+ * leave a second copy that no channel owns.
+ * @param channel - channel whose install path is resolved.
+ * @param home - home directory to expand `~` against.
+ * @returns the absolute path of the channel's own bundle.
+ */
+export function fitaInstallPath(channel: FitaChannel, home: string = homedir()): string {
+  return join(home, channel.installs.replace(/^~\//u, ''))
+}
+
+/** Why a hand-over must not proceed. */
+export type FitaHandoverRefusal = 'unknown-channel' | 'not-this-channel' | 'destination-mismatch'
+
+/** What the hand-over may do next. */
+export type FitaHandoverPlan =
+  | { readonly status: 'install'; readonly dmgPath: string; readonly destination: string }
+  | { readonly status: 'refused'; readonly reason: FitaHandoverRefusal }
+
+/** Inputs for deciding what a hand-over may do. */
+export interface FitaHandoverRequest {
+  /** Channel this build was stamped with, when it is one of ours. */
+  readonly runningChannel: FitaChannel | undefined
+  /** Channel the verified build belongs to. */
+  readonly preparedChannel: string
+  /** Verified DMG on disk. */
+  readonly preparedPath: string
+  /** Bundle the install would replace. */
+  readonly destination: string
+  /** Home directory the channel's own path is resolved against. */
+  readonly home: string
+}
+
+/**
+ * Decide whether a prepared build may replace a bundle, and which.
+ *
+ * A build downloaded for one channel must never be installed over another channel's
+ * bundle: that would swap one product for a different one under the same name. A build
+ * with no stamp refuses too, because there is no channel whose bundle it could own.
+ * @param request - running channel, prepared channel, prepared DMG, destination and home.
+ * @returns the install to perform, or the reason it must not happen.
+ */
+export function planFitaHandover(request: FitaHandoverRequest): FitaHandoverPlan {
+  if (request.runningChannel === undefined) return { status: 'refused', reason: 'unknown-channel' }
+  if (request.preparedChannel !== request.runningChannel.slug) {
+    return { status: 'refused', reason: 'not-this-channel' }
+  }
+  if (request.destination !== fitaInstallPath(request.runningChannel, request.home)) {
+    return { status: 'refused', reason: 'destination-mismatch' }
+  }
+  return { status: 'install', dmgPath: request.preparedPath, destination: request.destination }
+}
 
 /** Reasons an install can fail, named rather than collapsed. */
 export type FitaInstallFailure = 'mount' | 'no-app' | 'copy' | 'quarantine' | 'io'
