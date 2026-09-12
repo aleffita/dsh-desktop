@@ -187,3 +187,16 @@ export function fitaExpectedChecksum(sums: string, fileName: string): string | u
   }
   return undefined
 }
+
+/**
+ * Find the updater feed a release carries.
+ *
+ * The feed is what says which layer an update is, so a channel build is only updatable
+ * in-app when its release ships one.
+ * @param release - release to search.
+ * @param channel - channel that produced the release.
+ * @returns the asset, or undefined when the release carries no feed.
+ */
+export function fitaReleaseFeed(release: FitaRelease, channel: FitaChannel): FitaReleaseAsset | undefined {
+  return (release.assets ?? []).find(asset => asset.name === `${channel.feed}-mac.yml`)
+}

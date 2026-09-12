@@ -5,6 +5,7 @@ import {
   fitaReleasesEndpoint,
   MAX_RELEASES_RESPONSE_BYTES,
   parseFitaReleases,
+  readFitaChannelFeed,
 } from '../src/fita-release-source.ts'
 
 const dev = fitaChannel('dev')!
@@ -19,6 +20,7 @@ const listing = [
       { name: 'dev-mac.yml', browser_download_url: 'https://example.test/dev-mac.yml', size: 361 },
       { name: 'DSH-Fita-Dev-2.0.10-rc.1-universal.dmg', browser_download_url: 'https://example.test/dev.dmg', size: 278583798 },
       { name: 'SHA256SUMS.txt', browser_download_url: 'https://example.test/SHA256SUMS.txt', size: 300 },
+      { name: 'dev-mac.yml', browser_download_url: 'https://example.test/dev-mac.yml', size: 512 },
     ],
   },
   { tag_name: 'beta-v2.0.10-rc.1', draft: false, prerelease: true, assets: [] },
@@ -50,7 +52,7 @@ describe('listing parsing', () => {
       'dev-v9.9.9',
       'v2.0.9',
     ])
-    expect(parsed?.[0]?.assets).toHaveLength(3)
+    expect(parsed?.[0]?.assets).toHaveLength(4)
     expect(parsed?.[2]?.draft).toBe(true)
     // An asset without a download URL cannot be fetched, so it is not offered.
     expect(parsed?.[3]?.assets).toEqual([{ name: 'y.dmg', browser_download_url: 'https://example.test/y.dmg' }])
@@ -75,6 +77,7 @@ describe('channel check', () => {
     expect(result.newer).toBe(true)
     expect(result.dmg?.name).toBe('DSH-Fita-Dev-2.0.10-rc.1-universal.dmg')
     expect(result.sums?.name).toBe('SHA256SUMS.txt')
+    expect(result.feed?.name).toBe('dev-mac.yml')
   })
 
   it('reports a channel that is level with the running build without calling it an update', async () => {
@@ -134,5 +137,55 @@ describe('channel check', () => {
       request: async () => new Response('x'.repeat(MAX_RELEASES_RESPONSE_BYTES + 1), { status: 200 }),
     })
     expect(oversized).toEqual({ status: 'failed', channel: beta, reason: 'response' })
+  })
+})
+
+describe('reading a channel feed', () => {
+  const feedText = `version: 2.0.10-rc.1
+files:
+  - url: DSH-Fita-Dev-2.0.10-rc.1-universal.zip
+    sha512: zzz
+  - url: DSH-Fita-Dev-2.0.10-rc.1-universal.dmg
+    sha512: yyy
+path: DSH-Fita-Dev-2.0.10-rc.1-universal.zip
+`
+
+  it('answers the payload layer when the feed offers one', async () => {
+    const layer = await readFitaChannelFeed({
+      url: 'https://example.test/dev-mac.yml',
+      channel: dev,
+      request: async () => new Response(feedText, { status: 200 }),
+    })
+    expect(layer?.layer).toBe('payload')
+    if (layer?.layer !== 'payload') return
+    expect(layer.file.url).toBe('DSH-Fita-Dev-2.0.10-rc.1-universal.zip')
+  })
+
+  it('falls back to the full layer when the feed carries no payload', async () => {
+    const layer = await readFitaChannelFeed({
+      url: 'https://example.test/dev-mac.yml',
+      channel: dev,
+      request: async () => new Response(`version: 2.0.10-rc.1
+files:
+  - url: DSH-Fita-Dev-2.0.10-rc.1-universal.dmg
+`, { status: 200 }),
+    })
+    expect(layer?.layer).toBe('full')
+  })
+
+  it('answers nothing rather than guessing when it cannot read the feed', async () => {
+    const cases = [
+      async () => { throw new Error('offline') },
+      async () => new Response('nope', { status: 404 }),
+      async () => new Response('not a feed', { status: 200 }),
+      async () => new Response(`version: 2.0.10
+files:
+  - url: another-channel.zip
+`, { status: 200 }),
+    ]
+    for (const request of cases) {
+      await expect(readFitaChannelFeed({ url: 'https://example.test/dev-mac.yml', channel: dev, request }))
+        .resolves.toBeUndefined()
+    }
   })
 })

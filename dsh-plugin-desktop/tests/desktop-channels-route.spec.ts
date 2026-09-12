@@ -97,6 +97,7 @@ describe('channel check route', () => {
     newer: true,
     dmg: { name: 'DSH-Fita-Dev-2.0.10-rc.1-universal.dmg', browser_download_url: 'https://example.test/dev.dmg' },
     sums: { name: 'SHA256SUMS.txt', browser_download_url: 'https://example.test/SHA256SUMS.txt' },
+    feed: { name: 'dev-mac.yml', browser_download_url: 'https://example.test/dev-mac.yml' },
   }
 
   it('projects an offer into the renderer-safe contract', async () => {

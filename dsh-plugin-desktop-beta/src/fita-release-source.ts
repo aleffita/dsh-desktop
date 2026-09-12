@@ -10,9 +10,11 @@
 
 import { FITA_REGISTRY_REPOSITORY } from './fita-channels.generated.ts'
 import type { FitaChannel } from './fita-channel.ts'
+import { parseFitaFeed, fitaUpdateLayer, type FitaUpdateLayer } from './fita-feed.ts'
 import {
   fitaChannelAvailability,
   fitaReleaseDmg,
+  fitaReleaseFeed,
   fitaReleaseSums,
   type FitaRelease,
   type FitaReleaseAsset,
@@ -49,6 +51,8 @@ export type FitaChannelCheck =
     readonly dmg: FitaReleaseAsset | undefined
     /** The checksum file to verify it against, when the release carries one. */
     readonly sums: FitaReleaseAsset | undefined
+    /** The updater feed, which says which layer the update is. */
+    readonly feed: FitaReleaseAsset | undefined
   }
   | {
     readonly status: 'none'
@@ -200,5 +204,51 @@ export async function checkFitaChannelReleases(
     newer: availability.newer,
     dmg: fitaReleaseDmg(availability.release, channel, availability.version),
     sums: fitaReleaseSums(availability.release),
+    feed: fitaReleaseFeed(availability.release, channel),
   }
+}
+
+/** Inputs for reading a channel's feed from its release. */
+export interface FitaFeedReadOptions {
+  /** URL of the `<feed>-mac.yml` asset. */
+  readonly url: string
+  /** Channel the feed belongs to. */
+  readonly channel: FitaChannel
+  /** Request adapter, normally Electron's native network session. */
+  readonly request: UpdateRequest
+  /** Caller-owned cancellation. */
+  readonly signal?: AbortSignal
+}
+
+/**
+ * Read a channel's feed and decide which layer its update is.
+ *
+ * A feed that cannot be read, or that names no file of this channel, yields undefined: the
+ * caller must fall back to the full install rather than guess a layer it cannot verify.
+ * @param options - feed URL, channel and request adapter.
+ * @returns the layer and file, or undefined when the feed cannot answer.
+ */
+export async function readFitaChannelFeed(options: FitaFeedReadOptions): Promise<FitaUpdateLayer | undefined> {
+  let response: Response
+  try {
+    response = await options.request(options.url, {
+      method: 'GET',
+      cache: 'no-store',
+      redirect: 'error',
+      ...(options.signal === undefined ? {} : { signal: options.signal }),
+    })
+  } catch {
+    return undefined
+  }
+  if (response.status !== 200) return undefined
+  let body: string
+  try {
+    body = await response.text()
+  } catch {
+    return undefined
+  }
+  const feed = parseFitaFeed(body)
+  if (feed === null) return undefined
+  const layer = fitaUpdateLayer(feed, options.channel)
+  return layer.layer === 'none' ? undefined : layer
 }
