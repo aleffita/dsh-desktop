@@ -16,6 +16,9 @@ on:
   push:
     tags:
       - 'v*'
+      - 'beta-v*'
+      - 'dev-v*'
+      - 'pr-*-v*'
   workflow_dispatch:
     inputs:
       channel:
@@ -70,7 +73,12 @@ jobs:
           if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
             version=""
           else
-            version="${GITHUB_REF_NAME#v}"
+            # Lane tags carry their channel: v*, beta-v*, dev-v*, pr-<n>-v*.
+            raw="${GITHUB_REF_NAME}"
+            raw="${raw#beta-v}"
+            raw="${raw#dev-v}"
+            if [[ "$raw" == pr-*-v* ]]; then raw="${raw##*-v}"; fi
+            version="${raw#v}"
           fi
           committed="$(node -p "require('./dsh-plugin-desktop/package.json').version")"
           if [[ -z "$version" ]]; then version="$committed"; fi
