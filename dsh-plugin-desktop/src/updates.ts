@@ -92,7 +92,7 @@ export function apply(ctx: Context, config: Config): void {
           res.end(rejection === 401 ? 'unauthorized' : 'forbidden')
           return
         }
-        handleDesktopChannelsRequest(req, res, rendererOrigin, ctx.desktopRuntime.updates.fitaChannel)
+        return handleDesktopChannelsRequest(req, res, rendererOrigin, ctx.desktopRuntime.updates.fitaChannel)
       },
     })
     const unregisterChannelCheck = ctx.webServer.register({

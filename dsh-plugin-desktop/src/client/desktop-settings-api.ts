@@ -12,6 +12,8 @@ const RECOVERY_RESTART_PATH = '/api/desktop/restart/recovery'
 const RENDERER_RELOAD_PATH = '/api/desktop/developer/reload'
 const DEVELOPER_TOOLS_TOGGLE_PATH = '/api/desktop/developer/devtools'
 const UPDATE_CHECK_PATH = '/api/desktop/updates/check'
+const CHANNELS_PATH = '/api/desktop/updates/channels'
+const CHANNEL_CHECK_PATH = '/api/desktop/updates/channel-check'
 const DIAGNOSTICS_EXPORT_PATH = '/api/desktop/diagnostics/export'
 const MAX_PROFILES = 256
 const MAX_PROFILE_NAME_LENGTH = 255
@@ -83,8 +85,75 @@ export interface DesktopSettingsApi {
   reloadRenderer(): Promise<void>
   toggleDeveloperTools(): Promise<void>
   checkForUpdates(): Promise<void>
+  channels(): Promise<DesktopChannelsResponse>
+  checkChannel(channel: string): Promise<DesktopChannelCheck>
   exportDiagnostics(): Promise<void>
 }
+
+/** One Fita channel as the settings surface may show it. */
+export interface DesktopChannelView {
+  /** Registry slug, also the value the check request carries. */
+  readonly slug: string
+  /** Human channel name. */
+  readonly name: string
+  /** Git lane that produces this channel's builds. */
+  readonly lane: string
+  /** Tag pattern the release workflow accepts. */
+  readonly tag: string
+  /** Updater feed name. */
+  readonly feed: string
+  /** App bundle name. */
+  readonly appName: string
+  /** Bundle identifier. */
+  readonly bundleId: string
+  /** Header accent colour. */
+  readonly accent: string
+  /** Whether this channel publishes pre-releases. */
+  readonly prerelease: boolean
+  /** Install path the local installer uses. */
+  readonly installs: string
+  /** One-line description. */
+  readonly description: string
+  /** Whether the renderer is running inside this channel. */
+  readonly current: boolean
+}
+
+/** Every channel this build knows, and which one it is. */
+export interface DesktopChannelsResponse {
+  /** Slug of the running build's channel, or null when this build carries no stamp. */
+  readonly current: string | null
+  /** Catalogue, in registry order. */
+  readonly channels: readonly DesktopChannelView[]
+}
+
+/** One downloadable file offered by a channel. */
+export interface DesktopChannelArtifact {
+  /** Published file name. */
+  readonly name: string
+  /** Direct download URL. */
+  readonly url: string
+}
+
+/** Reasons a channel check can fail, as the UI may word them. */
+export type DesktopChannelCheckFailure = 'request' | 'response' | 'malformed' | 'unknown-channel'
+
+/** Outcome of checking one channel. */
+export type DesktopChannelCheck =
+  | {
+    readonly status: 'offer'
+    /** Channel that was checked. */
+    readonly channel: string
+    /** Version the channel currently publishes. */
+    readonly version: string
+    /** Whether that version is newer than the running build. */
+    readonly newer: boolean
+    /** The build to download, when the release carries one. */
+    readonly dmg: DesktopChannelArtifact | null
+    /** The checksum file to verify it with, when the release carries one. */
+    readonly sums: DesktopChannelArtifact | null
+  }
+  | { readonly status: 'none'; readonly channel: string }
+  | { readonly status: 'failed'; readonly channel: string; readonly reason: DesktopChannelCheckFailure }
 
 type FetchLike = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
 
@@ -281,6 +350,82 @@ export function parseDesktopActionAcceptance(value: unknown): void {
   }
 }
 
+function parseChannelArtifact(value: unknown): DesktopChannelArtifact | null {
+  if (value === null) return null
+  if (!isObject(value) || typeof value.name !== 'string' || typeof value.url !== 'string') {
+    throw new Error('dsh-plugin-desktop: invalid Desktop channel artifact')
+  }
+  return Object.freeze({ name: value.name, url: value.url })
+}
+
+function parseChannelView(value: unknown): DesktopChannelView {
+  if (!isObject(value)) throw new Error('dsh-plugin-desktop: invalid Desktop channel')
+  const strings = ['slug', 'name', 'lane', 'tag', 'feed', 'appName', 'bundleId', 'accent', 'installs', 'description'] as const
+  for (const field of strings) {
+    if (typeof value[field] !== 'string') throw new Error('dsh-plugin-desktop: invalid Desktop channel')
+  }
+  if (typeof value.prerelease !== 'boolean' || typeof value.current !== 'boolean') {
+    throw new Error('dsh-plugin-desktop: invalid Desktop channel')
+  }
+  return Object.freeze({
+    slug: value.slug as string,
+    name: value.name as string,
+    lane: value.lane as string,
+    tag: value.tag as string,
+    feed: value.feed as string,
+    appName: value.appName as string,
+    bundleId: value.bundleId as string,
+    accent: value.accent as string,
+    prerelease: value.prerelease,
+    installs: value.installs as string,
+    description: value.description as string,
+    current: value.current,
+  })
+}
+
+/** Parse the channel catalogue response. */
+export function parseDesktopChannelsResponse(value: unknown): DesktopChannelsResponse {
+  if (!isObject(value) || !Array.isArray(value.channels)) {
+    throw new Error('dsh-plugin-desktop: invalid Desktop channels response')
+  }
+  const current = value.current
+  if (current !== null && typeof current !== 'string') {
+    throw new Error('dsh-plugin-desktop: invalid Desktop channels response')
+  }
+  const channels = value.channels.map(parseChannelView)
+  return Object.freeze({ current, channels: Object.freeze(channels) })
+}
+
+/** Parse the outcome of checking one channel. */
+export function parseDesktopChannelCheck(value: unknown): DesktopChannelCheck {
+  if (!isObject(value) || typeof value.channel !== 'string') {
+    throw new Error('dsh-plugin-desktop: invalid Desktop channel check response')
+  }
+  if (value.status === 'none') {
+    return Object.freeze({ status: 'none' as const, channel: value.channel })
+  }
+  if (value.status === 'failed') {
+    const reason = value.reason
+    if (reason !== 'request' && reason !== 'response' && reason !== 'malformed' && reason !== 'unknown-channel') {
+      throw new Error('dsh-plugin-desktop: invalid Desktop channel failure')
+    }
+    return Object.freeze({ status: 'failed' as const, channel: value.channel, reason })
+  }
+  if (value.status !== 'offer'
+    || typeof value.version !== 'string'
+    || typeof value.newer !== 'boolean') {
+    throw new Error('dsh-plugin-desktop: invalid Desktop channel check response')
+  }
+  return Object.freeze({
+    status: 'offer' as const,
+    channel: value.channel,
+    version: value.version,
+    newer: value.newer,
+    dmg: parseChannelArtifact(value.dmg),
+    sums: parseChannelArtifact(value.sums),
+  })
+}
+
 async function readResponse(response: Response): Promise<unknown> {
   if (!response.ok) {
     throw new Error(`dsh-plugin-desktop: Desktop settings request failed (${String(response.status)})`)
@@ -351,6 +496,12 @@ export function createDesktopSettingsApi(fetcher: FetchLike = globalThis.fetch.b
     async checkForUpdates() {
       parseDesktopActionAcceptance(await readResponse(await post(fetcher, UPDATE_CHECK_PATH, {})))
     },
+    async channels() {
+      return parseDesktopChannelsResponse(await readResponse(await post(fetcher, CHANNELS_PATH, {})))
+    },
+    async checkChannel(channel: string) {
+      return parseDesktopChannelCheck(await readResponse(await post(fetcher, CHANNEL_CHECK_PATH, { channel })))
+    },
     async exportDiagnostics() {
       parseDesktopActionAcceptance(await readResponse(await post(fetcher, DIAGNOSTICS_EXPORT_PATH, {})))
     },
@@ -369,5 +520,7 @@ export const desktopSettingsPaths = Object.freeze({
   rendererReload: RENDERER_RELOAD_PATH,
   developerToolsToggle: DEVELOPER_TOOLS_TOGGLE_PATH,
   updateCheck: UPDATE_CHECK_PATH,
+  channels: CHANNELS_PATH,
+  channelCheck: CHANNEL_CHECK_PATH,
   diagnosticsExport: DIAGNOSTICS_EXPORT_PATH,
 })

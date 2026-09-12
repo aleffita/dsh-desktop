@@ -507,21 +507,28 @@ export const desktopSettingsRouteConstants = Object.freeze({
 
 /**
  * Describe the channels this build knows and which one it is.
+ *
+ * POST, like every other route in this API: the settings surface is reached only
+ * from the launcher's own renderer, and the mutating same-origin rule is stricter
+ * than the referrer rule a GET would fall back to.
  * @param req - incoming request.
  * @param res - response to finish.
  * @param expectedOrigin - loopback origin every settings request must match.
  * @param current - channel this build was stamped with, when it is one of ours.
  */
-export function handleDesktopChannelsRequest(
+export async function handleDesktopChannelsRequest(
   req: IncomingMessage,
   res: ServerResponse,
   expectedOrigin: string,
   current: FitaChannel | undefined,
-): void {
-  if (req.method !== 'GET') return finishJson(res, 405, error('method not allowed'), 'GET')
-  if (!isSameOriginLoopbackRequest(req, expectedOrigin, false)) {
+): Promise<void> {
+  if (req.method !== 'POST') return finishJson(res, 405, error('method not allowed'), 'POST')
+  if (!isSameOriginLoopbackRequest(req, expectedOrigin, true)) {
     return finishJson(res, 403, error('forbidden'))
   }
+  const value = await parsePostBody(req, res)
+  if (value === INVALID_BODY) return
+  if (!isEmptyRequest(value)) return finishJson(res, 400, error('invalid channel request'))
   const response: DesktopChannelsResponse = {
     current: current?.slug ?? null,
     channels: FITA_CHANNELS.map(channel => ({ ...channel, current: channel.slug === current?.slug })),
