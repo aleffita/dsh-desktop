@@ -123,7 +123,7 @@ export function packageMacSmoke(options: MacSmokePackageOptions = defaultOptions
   if (options.env.DSH_PACKAGE_CHECK_ALREADY_RAN !== '1') {
     options.run(
       'corepack',
-      ['yarn', 'workspace', 'dsh-plugin-desktop', 'check:mac-package'],
+      ['yarn', 'workspace', 'dsh-plugin-desktop-beta', 'check:mac-package'],
       options.workspaceRoot,
       cleanEnvironment,
     )
