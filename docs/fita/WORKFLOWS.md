@@ -45,9 +45,9 @@ guessing whether the fork is current.
 4. The evidence recorded in the commit or the release notes — a build that cannot say what
    it proved is not a release candidate.
 
-## Known upstream failure in the gate
+## A gate failure that was not ours, and how it was fixed
 
-`yarn check` ends with exactly one failure, and it is not ours:
+`yarn check` once ended with exactly one failure:
 
 ```
 FAIL tests/windows-nsis-ab.spec.ts > Windows NSIS A/B packaging
@@ -55,7 +55,7 @@ FAIL tests/windows-nsis-ab.spec.ts > Windows NSIS A/B packaging
 ```
 
 Reproduced unchanged on a pristine `dev`, and the spec, the script and
-`patches/app-builder-lib@26.15.7.patch` are all identical to `master` — the defect is
+`patches/app-builder-lib@26.15.7.patch` are all identical to `master` — the defect was
 upstream's, in the Windows-only NSIS A/B lab. Root cause, isolated on this machine's
 `git 2.50.1`:
 
@@ -65,12 +65,21 @@ git apply --reverse --unsafe-paths --directory=. \
 ```
 
 `--include` is matched against the path *after* the `--directory` prefix is applied, so
-`templates/…` never matches `./templates/…`: git selects no file, changes nothing, and still
-exits 0. Measured: dropping `--directory=.` restores the template, and
-`--include=./templates/…` with `--directory=.` restores it too. The same flag pair is in the
-production script (`scripts/build-windows-nsis-ab.ts:251`), where the guard at line 283 turns
-the silent no-op into a hard failure.
+`templates/…` never matches `./templates/…`: git selected no file, changed nothing, and still
+exited 0. Measured:
 
-It is a cherry-pick candidate for `beta`, not something to work around here: the fix belongs
-to the upstream-bound lane, and until it lands, a green `yarn check` means "everything except
-this one".
+| invocation | exit | template restored |
+| --- | --- | --- |
+| `--directory=. --include=templates/…` | 0 | no |
+| no `--directory` | 0 | yes |
+| `--directory=. --include=./templates/…` | 0 | yes |
+
+Patch paths are already package-relative and `-C <isolated copy>` anchors them, so
+`--directory=.` was never needed. It is gone from the production script and from the spec,
+and the spec now asserts that no `--directory` argument is present — that is the property
+that keeps the reversal real. The guard that turned the silent no-op into a hard failure
+stays where it was.
+
+Lane record: fixed on `dev` in `9b0f37655a`, cherry-picked to `beta` as `c97e8e0cd3`. The
+generalizable fix leaves the fork from `beta` when we decide to, like any other.
+

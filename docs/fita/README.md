@@ -17,23 +17,28 @@ carrying its lane, its target (`dev` / `beta` / upstream) and whether it is upst
 
 ## Program
 
-Work is developed on `dev`. Nothing below is proposed upstream as a whole; the last column
+Work is developed on `dev`. Nothing below is proposed upstream as a whole; the target column
 is the only thing that may ever leave the fork, one isolated commit set at a time.
 
-| epic | what it is | target |
-| --- | --- | --- |
-| Channels and branding | channel registry, colour-coded `FITA` chip, version subtitle, `DSH Fita` product name | dev |
-| Per-channel packaging | stamp `productName`, `bundleId` and updater feed per channel so installs stand side by side | dev |
-| Install manager | `yarn fita install/use/status`, verified downloads, no manual copying | dev |
-| Update channels UI | in-app updater: check, choose channel, download, apply, report state | dev, later beta |
-| GitHub Packages | publish our scoped plugin packages to our registry | dev |
-| Marketplace source | our fork as a marketplace source, with an `alefita's choices` bundle YAML consumed by onboarding and plugin settings | dev |
-| Planning plugin | kanban board in the Harness itself: backlog, epics/projects/tasks hierarchy, tags, provenance, related sessions, colours, agent skills; local storage first, git-authored, read-only without git | dev |
-| Feature flags | bundling and gating by domain, so a feature can be absent from a build; the natural successor once bundle splitting is on the table | dev, later beta |
-| i18n pass | translate the remaining Chinese-only surfaces | dev, upstream candidate |
-| Remote access as forward | remote clients see the same board and sessions | dev |
-| Sync | pluggable sync, Google Drive OAuth first, provenance preserved | dev |
-| Upstream reconciliation | scheduled merge of upstream `master` into `dev`, logged | dev |
+| epic | what it is | target | state |
+| --- | --- | --- | --- |
+| Channels and branding | channel registry, colour-coded `FITA` chip, version subtitle, `DSH Fita` product name | dev | landed |
+| Per-channel packaging | stamp `productName`, `bundleId` and updater feed per channel so installs stand side by side | dev | landed |
+| Install manager | `yarn fita install/use/status`, verified downloads, no manual copying | dev | landed |
+| Update channels UI | in-app updater: check, choose channel, download, apply, report state | dev, later beta | next |
+| GitHub Packages | publish our scoped plugin packages to our registry | dev | queued |
+| Marketplace source | our fork as a marketplace source, with an `alefita's choices` bundle YAML consumed by onboarding and plugin settings | dev | queued |
+| Planning plugin | kanban board in the Harness itself: backlog, epics/projects/tasks hierarchy, tags, provenance, related sessions, colours, agent skills; local storage first, git-authored, read-only without git | dev | queued |
+| Feature flags | bundling and gating by domain, so a feature can be absent from a build; the natural successor once bundle splitting is on the table | dev, later beta | after 1–5 |
+| i18n pass | translate the remaining Chinese-only surfaces | dev, upstream candidate | after 1–5 |
+| Remote access as forward | remote clients see the same board and sessions | dev | after 1–5 |
+| Sync | pluggable sync, Google Drive OAuth first, provenance preserved | dev | after 1–5 |
+| Upstream reconciliation | scheduled merge of upstream `master` into `dev`, logged | dev | recipe documented |
+
+"Landed" means the slice's evidence is in `docs/fita/INSTALLS.md` and `CHANNELS.md`, its e2e
+runs locally, and it entered `dev` through a pull request. "Next" is the only slice that may
+start before the previous one is merged.
+
 
 ## Non-negotiables
 

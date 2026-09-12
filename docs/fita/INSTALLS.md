@@ -91,13 +91,20 @@ shipped with it. A channel that cannot prove its identity does not produce artif
 
 ## CI/CD integration
 
-The release workflow is the only producer of installable artifacts:
+Where the pipeline is today, stated precisely: `desktop-release.yml` accepts the four lane
+tags (`v*`, `beta-v*`, `dev-v*`, `pr-*-v*`) but still packages the single smoke build
+(`yarn workspace dsh-plugin-desktop dist:mac-smoke`, feed `latest-mac.yml`, asset
+`DSH-Desktop-<version>-macos-universal`); it does not yet run `fita:package` or read
+`fita-channel.json`. Wiring the pipeline to the per-channel packaging is the next slice, so
+this table separates what exists from what it will become:
 
-| produced by | artifact | consumed by |
-| --- | --- | --- |
-| `desktop-release.yml` (tag per lane) | DMG, `.blockmap`, `<feed>-mac.yml`, `SHA256SUMS.txt` as a GitHub release | `fita install`, the in-app updater |
-| workflow artifacts on the same run | the same files, for inspection | humans, PR builds |
-| GitHub Packages (planned) | our plugin packages, `@aleffita/…` | `dsh plugin add` from our registry |
+| producer | artifact | consumed by | state |
+| --- | --- | --- | --- |
+| `fita:package --channel <slug>` (local) | DMG, `.blockmap`, `<feed>-mac.yml`, `fita-channel.json` | `fita install --from-dir`, the channel verifier, the install e2e | exists |
+| `desktop-release.yml` on a lane tag | DMG, `.blockmap`, `latest-mac.yml`, `SHA256SUMS.txt` as a GitHub release | nothing channel-aware yet; humans | exists, single-channel |
+| `desktop-release.yml` driving `fita:package` | the same files per channel, asset name from the channel manifest | `yarn fita install <channel>`, the in-app updater | next slice |
+| GitHub Packages | our plugin packages under `@aleffita/…` | `dsh plugin add` from our registry | next slice |
 
-So the loop is: land on a lane → tag the lane → the pipeline publishes the channel's
+The loop it becomes: land on a lane → tag the lane → the pipeline publishes that channel's
 release → `yarn fita install <channel>` or the running app's updater picks it up.
+
