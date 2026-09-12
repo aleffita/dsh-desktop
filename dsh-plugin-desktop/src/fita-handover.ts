@@ -160,3 +160,67 @@ async function relaunchOutcome(
     ? { layer, status: 'applied', appPath }
     : { layer, status: 'applied-not-relaunched', appPath }
 }
+
+/**
+ * Render a request back into the arguments that reproduce it.
+ *
+ * The exact inverse of `parseFitaHandoverArguments`, which is what makes the pair
+ * testable as one contract: a request that survives the round trip is one the relaunched
+ * process will read back identically.
+ * @param request - layer and the paths it needs.
+ * @returns the argument list, without the executable.
+ */
+export function fitaHandoverArguments(request: FitaHandoverRequest): string[] {
+  if (request.layer === 'payload') {
+    return [
+      `${FITA_HANDOVER_LAYER_FLAG}=payload`,
+      `${FITA_HANDOVER_ZIP_FLAG}=${request.zipPath}`,
+      `${FITA_HANDOVER_APP_FLAG}=${request.appPath}`,
+      `${FITA_HANDOVER_STAGING_FLAG}=${request.staging}`,
+    ]
+  }
+  return [
+    `${FITA_HANDOVER_LAYER_FLAG}=full`,
+    `${FITA_HANDOVER_DMG_FLAG}=${request.dmgPath}`,
+    `${FITA_HANDOVER_DESTINATION_FLAG}=${request.destination}`,
+  ]
+}
+
+/** Options a detached hand-over process is started with. */
+export interface FitaHandoverSpawnOptions {
+  /** Whether the child outlives the app that starts it. */
+  readonly detached: boolean
+  /** The child must not hold the parent's streams open. */
+  readonly stdio: 'ignore'
+}
+
+/** Starts one detached process. */
+export type FitaSpawn = (
+  command: string,
+  args: readonly string[],
+  options: FitaHandoverSpawnOptions,
+) => void
+
+/** Inputs for starting the hand-over process. */
+export interface FitaHandoverStartOptions {
+  /** Layer and the paths it needs. */
+  readonly request: FitaHandoverRequest
+  /** Executable to relaunch: this app's own binary. */
+  readonly executable: string
+  /** Spawn implementation; the caller passes the real one. */
+  readonly spawn: FitaSpawn
+}
+
+/**
+ * Start the hand-over process, detached, so it can outlive this app.
+ *
+ * The child waits for this process to exit before touching the bundle, which is why it
+ * has to be detached and why its streams are ignored: the app quits immediately after.
+ * @param options - request, executable and spawn implementation.
+ * @returns the value to check against: the arguments the child was given.
+ */
+export function startFitaHandover(options: FitaHandoverStartOptions): readonly string[] {
+  const args = fitaHandoverArguments(options.request)
+  options.spawn(options.executable, args, { detached: true, stdio: 'ignore' })
+  return args
+}

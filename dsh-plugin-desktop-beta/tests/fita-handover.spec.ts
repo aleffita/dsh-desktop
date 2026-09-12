@@ -2,7 +2,13 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { runFitaHandoverLayer } from '../src/fita-handover.ts'
+import {
+  fitaHandoverArguments,
+  parseFitaHandoverArguments,
+  runFitaHandoverLayer,
+  startFitaHandover,
+  type FitaHandoverRequest,
+} from '../src/fita-handover.ts'
 import type { FitaCommandResult } from '../src/fita-install.ts'
 
 const roots: string[] = []
@@ -129,5 +135,42 @@ describe('layer-aware hand-over', () => {
 
     expect(outcome.status).toBe('applied-not-relaunched')
     expect(readFileSync(join(resources, 'app.asar'), 'utf8')).toBe('new')
+  })
+})
+
+describe('starting a hand-over', () => {
+  const payload: FitaHandoverRequest = {
+    layer: 'payload',
+    zipPath: '/cache/dev/a.zip',
+    appPath: '/home/operator/Applications/DSH Fita Dev.app',
+    staging: '/cache/dev/staging',
+  }
+  const full: FitaHandoverRequest = {
+    layer: 'full',
+    dmgPath: '/cache/dev/a.dmg',
+    destination: '/home/operator/Applications/DSH Fita Dev.app',
+  }
+
+  it('renders arguments the parser reads back unchanged', () => {
+    for (const request of [payload, full]) {
+      expect(parseFitaHandoverArguments(['DSH Fita Dev', ...fitaHandoverArguments(request)]))
+        .toEqual(request)
+    }
+  })
+
+  it('starts the app itself, detached, with the request as arguments', () => {
+    const calls: [string, readonly string[], unknown][] = []
+    const args = startFitaHandover({
+      request: payload,
+      executable: '/Applications/DSH Fita Dev.app/Contents/MacOS/DSH Fita Dev',
+      spawn: (command, spawned, options) => { calls.push([command, spawned, options]) },
+    })
+
+    expect(calls).toHaveLength(1)
+    expect(calls[0]?.[0]).toContain('DSH Fita Dev')
+    expect(calls[0]?.[1]).toEqual(args)
+    // Detached and silent: the child has to outlive this process and cannot hold its streams.
+    expect(calls[0]?.[2]).toEqual({ detached: true, stdio: 'ignore' })
+    expect(parseFitaHandoverArguments(['x', ...args])).toEqual(payload)
   })
 })
