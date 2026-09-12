@@ -44,3 +44,33 @@ guessing whether the fork is current.
 3. `yarn fita list` sanity when the change touches `fita/channels.yml`.
 4. The evidence recorded in the commit or the release notes — a build that cannot say what
    it proved is not a release candidate.
+
+## Known upstream failure in the gate
+
+`yarn check` ends with exactly one failure, and it is not ours:
+
+```
+FAIL tests/windows-nsis-ab.spec.ts > Windows NSIS A/B packaging
+     > really reverses only the extract template from below the outer worktree
+```
+
+Reproduced unchanged on a pristine `dev`, and the spec, the script and
+`patches/app-builder-lib@26.15.7.patch` are all identical to `master` — the defect is
+upstream's, in the Windows-only NSIS A/B lab. Root cause, isolated on this machine's
+`git 2.50.1`:
+
+```sh
+git apply --reverse --unsafe-paths --directory=. \
+  --include=templates/nsis/include/extractAppPackage.nsh patches/app-builder-lib@26.15.7.patch
+```
+
+`--include` is matched against the path *after* the `--directory` prefix is applied, so
+`templates/…` never matches `./templates/…`: git selects no file, changes nothing, and still
+exits 0. Measured: dropping `--directory=.` restores the template, and
+`--include=./templates/…` with `--directory=.` restores it too. The same flag pair is in the
+production script (`scripts/build-windows-nsis-ab.ts:251`), where the guard at line 283 turns
+the silent no-op into a hard failure.
+
+It is a cherry-pick candidate for `beta`, not something to work around here: the fix belongs
+to the upstream-bound lane, and until it lands, a green `yarn check` means "everything except
+this one".
