@@ -77,5 +77,35 @@ its identity produces neither: no artifacts, no manifest, nothing to ship.
 | header renderer | `channels.yml` | chip label, accent, subtitle typography and slug |
 | installer (`fita`) | `channels.yml` | install path, app name, which release to fetch |
 | packaging (`fita:package`) | `channels.yml` + `fita-channel.json` | product name, bundle id, updater feed, manifest provenance |
-| updater | baked `app-update.yml` | `channel: <feed>`, owner/repo of our fork |
+| updater | baked `app-update.yml` + `channels.yml` | `channel: <feed>`, owner/repo of our fork (see *Updater vocabulary*) |
 | marketplace source | `channels.yml` | which builds and plugins this source offers |
+
+## Updater vocabulary: the shipped app knows two channels, we ship four
+
+Measured on the vendored runtime, not assumed:
+
+- `dsh-plugin-desktop/src/update-checker.ts:19` — `export type DesktopReleaseChannel = 'stable' | 'beta'`.
+  Our lanes `dev` and `pr` are outside that union, so the app's own update path cannot
+  name them.
+- `dsh-plugin-desktop/src/update-download.ts:183` — the artifact it offers is
+  `channel === 'beta' ? 'DSH-Desktop-Beta' : 'DSH-Desktop'`. A `dev` build that used the
+  built-in path would present itself as `DSH-Desktop`, i.e. as stable.
+- `dsh-plugin-desktop/src/update-download.ts:260` — `validatedVersion` enforces
+  channel/prerelease agreement, so stable and beta cannot borrow each other's versions.
+
+Consequences for the program, in order:
+
+1. The channel-aware updater is ours to build; it must key on `channels.yml` and the
+   installed `fita-channel.json`, never on the app's two-value union.
+2. `app-update.yml` is still written per channel by `electron-builder` and is correct
+   (`channel: dev`, owner/repo of our fork) — that is the descriptor our updater reads.
+   Verified for the dev build: `provider: github`, `owner: aleffita`, `repo: dsh-desktop`,
+   `channel: dev`.
+3. `updaterCacheDirName` is derived from the package name, not the product name
+   (`app-builder-lib/out/appInfo.js:126` → `dsh-plugin-desktop-updater`), so **every**
+   channel shares one cache directory. Nothing consumes it today — no file under
+   `dsh-plugin-desktop/src` imports `electron-updater`, `autoUpdater` or `app-update.yml`;
+   the app reaches its own version endpoint instead — so this is latent, not broken. Our
+   updater must scope its download/cache paths by channel rather than inherit the shared
+   name.
+

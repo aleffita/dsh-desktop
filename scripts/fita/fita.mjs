@@ -112,6 +112,7 @@ function commandInstall(slug, requestedVersion, fromDir) {
   const work = mkdtempSync(join(tmpdir(), `fita-${slug}-`))
   let dmg
   let checksumSource
+  let version
 
   if (fromDir !== undefined) {
     const source = resolve(fromDir)
@@ -119,6 +120,8 @@ function commandInstall(slug, requestedVersion, fromDir) {
     if (!existsSync(manifestPath)) fail(`${source} carries no fita-channel.json; build the channel first`)
     const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'))
     if (manifest.channel !== channel.slug) fail(`${source} is the ${manifest.channel} build, not ${channel.slug}`)
+    if (typeof manifest.version !== 'string') fail(`${source}/fita-channel.json carries no version`)
+    version = manifest.version
     dmg = join(source, manifest.dmg)
     if (!existsSync(dmg)) fail(`missing ${manifest.dmg} in ${source}`)
     const sums = join(source, 'SHA256SUMS.txt')
@@ -128,7 +131,7 @@ function commandInstall(slug, requestedVersion, fromDir) {
     process.stdout.write(`fita: installing ${manifest.dmg} from ${source}\n`)
   } else {
     const release = tagFor(channel)
-    const version = release.tagName.replace(/^[a-z-]*v/u, '')
+    version = release.tagName.replace(/^[a-z-]*v/u, '')
     if (requestedVersion !== undefined && requestedVersion !== version) {
       fail(`channel ${slug} resolves to ${version}; ${requestedVersion} was requested`)
     }

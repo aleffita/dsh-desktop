@@ -23,6 +23,21 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..')
 const desktopRoot = join(root, 'dsh-plugin-desktop')
 const desktopRequire = createRequire(join(desktopRoot, 'package.json'))
 
+/**
+ * Electron reads inside `app.asar` natively; plain Node does not, so `existsSync`
+ * always reports a packaged path as absent. An unpacked build is inspected
+ * through the asar API instead: the same reader that produced the archive.
+ */
+function asarHas(archive: string, innerPath: string): boolean | undefined {
+  try {
+    const asar = desktopRequire('@electron/asar') as { statFile: (file: string, inner: string) => { size: number } }
+    return asar.statFile(archive, innerPath).size > 0
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'MODULE_NOT_FOUND') return undefined
+    return false
+  }
+}
+
 interface Channel {
   readonly name: string
   readonly slug: string
@@ -112,16 +127,19 @@ function main(argv: readonly string[]): void {
     // Headless boot through the embedded Harness CLI: proves the packaged runtime
     // resolves and starts without opening the app the user is running.
     const executable = join(appPath, 'Contents', 'MacOS', channel.appName)
-    const cli = join(appPath, 'Contents', 'Resources', 'app.asar', 'node_modules', '@deepseek-ai', 'dsh', 'lib', 'bin.js')
+    const archive = join(appPath, 'Contents', 'Resources', 'app.asar')
+    const cliInner = 'node_modules/@deepseek-ai/dsh/lib/bin.js'
+    const cli = join(archive, ...cliInner.split('/'))
+    const packaged = asarHas(archive, cliInner)
     if (!existsSync(executable)) problems.push(`${slug}: missing executable ${executable}`)
-    else if (!existsSync(cli)) problems.push(`${slug}: missing embedded CLI ${cli}`)
+    else if (packaged === false) problems.push(`${slug}: missing embedded CLI ${cliInner} in app.asar`)
     else {
       const boot = run(executable, [cli, '--version'], { ...env, ELECTRON_RUN_AS_NODE: '1', DSH_TELEMETRY_DISABLED: '1' })
       const printed = boot.stdout.trim()
       if (boot.status !== 0 || printed.length === 0) {
         problems.push(`${slug}: embedded CLI did not boot (status ${String(boot.status)}): ${(boot.stderr || boot.stdout).trim().slice(0, 200)}`)
       } else {
-        note(`${slug}: embedded runtime boots, harness ${printed}`)
+        note(`${slug}: embedded runtime boots, harness ${printed}${packaged === undefined ? ' (asar inventory unavailable)' : ''}`)
       }
     }
   }
