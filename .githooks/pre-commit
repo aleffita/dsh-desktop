@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# Fast gates, run before a commit exists.
+#
+# These are the checks that have actually caught mistakes in this repository: a file copied
+# from one edition over the other, the generated channel registry going stale, and whitespace
+# the CI rejects. Each one calls the same node script CI calls, so the two cannot drift.
+set -euo pipefail
+root="$(git rev-parse --show-toplevel)"
+cd "$root"
+
+echo "pre-commit: whitespace the CI rejects"
+node scripts/verify-diff-whitespace.mjs
+
+echo "pre-commit: the two editions still differ where they should"
+node scripts/verify-desktop-variants.mjs
+
+echo "pre-commit: the channel registry the app carries is current"
+node scripts/fita/channels-module.mts --check

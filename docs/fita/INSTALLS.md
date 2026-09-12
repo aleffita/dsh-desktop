@@ -100,10 +100,16 @@ this table separates what exists from what it will become:
 
 | producer | artifact | consumed by | state |
 | --- | --- | --- | --- |
-| `fita:package --channel <slug>` (local) | DMG, `.blockmap`, `<feed>-mac.yml`, `fita-channel.json` | `fita install --from-dir`, the channel verifier, the install e2e | exists |
-| `desktop-release.yml` on a lane tag | DMG, `.blockmap`, `latest-mac.yml`, `SHA256SUMS.txt` as a GitHub release | nothing channel-aware yet; humans | exists, single-channel |
-| `desktop-release.yml` driving `fita:package` | the same files per channel, asset name from the channel manifest | `yarn fita install <channel>`, the in-app updater | next slice |
-| GitHub Packages | our plugin packages under `@aleffita/…` | `dsh plugin add` from our registry | next slice |
+| `fita:package --channel <slug>` (local) | DMG + zip, both with `.blockmap`, `<feed>-mac.yml`, `fita-channel.json` | `fita install --from-dir`, the channel verifier, the install e2e, the in-app updater | exists |
+| `desktop-release.yml` on a lane tag | the same files for that channel, named from `fita-channel.json`, plus `SHA256SUMS.txt` | `yarn fita install <slug>`, the in-app updater | exists, per channel |
+| GitHub Packages | plugins we author under `@aleffita/…` | `dsh plugin add` from our registry | scoped from the start, see `PACKAGES.md` |
+
+A lane tag now resolves to a registry slug (`v*` → `main`, `beta-v*` → `beta`, `dev-v*` → `dev`,
+`pr-<n>-v*` → `pr`), packages that channel through `yarn fita:package --channel <slug>`, and
+collects what the channel manifest says was built — both layers with their blockmaps, the feed
+and the manifest itself. The release notes name the channel and install it with
+`yarn fita install <slug>` instead of telling anyone to drag an app. `tests/fita-release-workflow.spec.ts`
+holds that contract, including "never publishes to npm".
 
 The loop it becomes: land on a lane → tag the lane → the pipeline publishes that channel's
 release → `yarn fita install <channel>` or the running app's updater picks it up.

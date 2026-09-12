@@ -70,98 +70,107 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # Lane tags carry their channel: v*, beta-v*, dev-v*, pr-<n>-v*. The slug is the
+          # registry's, and every later step names the channel rather than a build directory.
+          tag="${GITHUB_REF_NAME}"
+          case "$tag" in
+            beta-v*) slug=beta ;;
+            dev-v*) slug=dev ;;
+            pr-*-v*) slug=pr ;;
+            v*) slug=main ;;
+            *) echo "::error::tag $tag does not belong to a lane"; exit 1 ;;
+          esac
           if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            slug="${{ inputs.channel || 'dev' }}"
             version=""
           else
-            # Lane tags carry their channel: v*, beta-v*, dev-v*, pr-<n>-v*.
-            raw="${GITHUB_REF_NAME}"
+            raw="$tag"
             raw="${raw#beta-v}"
             raw="${raw#dev-v}"
             if [[ "$raw" == pr-*-v* ]]; then raw="${raw##*-v}"; fi
             version="${raw#v}"
           fi
+          entry="$(node -e "
+            const yaml = require('yaml');
+            const fs = require('fs');
+            const registry = yaml.parse(fs.readFileSync('fita/channels.yml', 'utf8'));
+            const channel = registry.channels.find(entry => entry.slug === process.argv[1]);
+            if (!channel) { console.error('unknown channel'); process.exit(1); }
+            process.stdout.write(JSON.stringify(channel));
+          " "$slug")"
+          if [[ -z "$entry" ]]; then
+            echo "::error::$slug is not in fita/channels.yml"
+            exit 1
+          fi
+          channel="$(node -e "process.stdout.write(JSON.parse(process.argv[1]).feed)" "$entry")"
+          artifact_slug="$(node -e "process.stdout.write(JSON.parse(process.argv[1]).artifactSlug)" "$entry")"
+          prerelease="$(node -e "process.stdout.write(String(JSON.parse(process.argv[1]).prerelease))" "$entry")"
           committed="$(node -p "require('./dsh-plugin-desktop/package.json').version")"
           if [[ -z "$version" ]]; then version="$committed"; fi
           if [[ "$version" != "$committed" ]]; then
             echo "::error::version $version (tag/input) does not match the committed Desktop version $committed"
             exit 1
           fi
-          channel="${{ inputs.channel || '' }}"
-          if [[ -z "$channel" ]]; then
-            if [[ "$version" == *-* ]]; then channel="rc"; else channel="stable"; fi
-          fi
-          case "$channel" in
-            stable|rc) ;;
-            *) echo "::error::unknown channel $channel"; exit 1 ;;
-          esac
-          if [[ "$channel" == "stable" && "$version" == *-* ]]; then
-            echo "::error::a stable release cannot carry a pre-release version ($version)"; exit 1
-          fi
-          if [[ "$channel" == "rc" && "$version" != *-* ]]; then
-            echo "::error::an rc release needs a pre-release version, for example 2.0.10-rc.1"; exit 1
+          # The registry says which channels carry pre-releases; the tag cannot contradict it.
+          if [[ "$prerelease" == "false" && "$version" == *-* ]]; then
+            echo "::error::$slug is a stable channel and cannot carry a pre-release version ($version)"
+            exit 1
           fi
           {
             echo "version=$version"
+            echo "slug=$slug"
             echo "channel=$channel"
+            echo "artifactSlug=$artifact_slug"
+            echo "prerelease=$prerelease"
             echo "tag=v$version"
           } >> "$GITHUB_OUTPUT"
 
       - name: Package gate
         run: yarn workspace dsh-plugin-desktop check:mac-package
 
-      - name: Package the unsigned macOS universal DMG
+      - name: Package the channel
         env:
           DSH_PACKAGE_CHECK_ALREADY_RAN: '1'
-        # The workspace-level path mirrors upstream CI. The root `dist:mac-smoke`
-        # additionally runs the Agents-Anywhere preparation, which fetches AA main
-        # and currently fails its own typecheck against the pinned Harness types;
-        # that path is not needed to package this app.
-        run: yarn workspace dsh-plugin-desktop dist:mac-smoke
+        # One channel per tag, built through the fork's packaging wrapper so the app carries
+        # the channel's own product name, bundle id, updater feed and artifact names — and so
+        # both update layers are produced: the DMG for a full install and the zip an app
+        # updates itself from.
+        run: yarn fita:package --channel ${{ steps.release.outputs.slug }}
 
       - name: Collect release assets
         id: assets
         shell: bash
         run: |
           set -euo pipefail
+          slug="${{ steps.release.outputs.slug }}"
           version="${{ steps.release.outputs.version }}"
-          source="dsh-plugin-desktop/dist/mac-smoke"
+          source="dsh-plugin-desktop/dist/mac-${slug}"
           destination="release-assets"
           mkdir -p "$destination"
-          slug="DSH-Desktop-${version}-macos-universal"
-          shopt -s nullglob
-          dmg=("$source"/*.dmg)
-          if [[ ${#dmg[@]} -ne 1 ]]; then
-            echo "::error::expected exactly one DMG in $source, found ${#dmg[@]}"
+          if [[ ! -f "$source/fita-channel.json" ]]; then
+            echo "::error::$source carries no fita-channel.json; the channel was not packaged"
             exit 1
           fi
-          cp "${dmg[0]}" "$destination/${slug}.dmg"
-          for blockmap in "$source"/*.dmg.blockmap; do
-            cp "$blockmap" "$destination/${slug}.dmg.blockmap"
-          done
-          # The updater requests exactly the file name recorded in the feed, so
-          # the feed is the single source of truth for the shippable asset name.
-          feed="$source/latest-mac.yml"
-          if [[ -f "$feed" ]]; then
-            feedAsset="$(sed -n 's/^path:[[:space:]]*//p' "$feed" | head -1 | tr -d '"'"'"'')"
-            if [[ -z "$feedAsset" ]]; then
-              echo "::error::$feed records no path entry"
-              exit 1
-            fi
-            cp "${dmg[0]}" "$destination/$feedAsset"
-            if [[ -f "${dmg[0]}.blockmap" ]]; then
-              cp "${dmg[0]}.blockmap" "$destination/$feedAsset.blockmap"
-            fi
-            cp "$feed" "$destination/latest-mac.yml"
-            echo "feed=latest-mac.yml" >> "$GITHUB_OUTPUT"
-            echo "feedAsset=$feedAsset" >> "$GITHUB_OUTPUT"
-          else
-            echo "::warning::electron-builder emitted no latest-mac.yml; the release carries no update feed"
-            echo "feed=" >> "$GITHUB_OUTPUT"
-            echo "feedAsset=" >> "$GITHUB_OUTPUT"
-          fi
+          # The manifest is what says what was built, so asset names come from it rather than
+          # from a guess about how electron-builder spells them.
+          node -e "
+            const fs = require('fs');
+            const path = require('path');
+            const manifest = JSON.parse(fs.readFileSync(process.argv[1], 'utf8'));
+            const source = process.argv[2];
+            const destination = process.argv[3];
+            const copies = [manifest.dmg, manifest.zip, manifest.feedFile].filter(Boolean);
+            for (const name of copies) {
+              fs.copyFileSync(path.join(source, name), path.join(destination, name));
+              const blockmap = path.join(source, name + '.blockmap');
+              if (fs.existsSync(blockmap)) fs.copyFileSync(blockmap, path.join(destination, name + '.blockmap'));
+            }
+            fs.copyFileSync(path.join(source, 'fita-channel.json'), path.join(destination, 'fita-channel.json'));
+          " "$source/fita-channel.json" "$source" "$destination"
           (cd "$destination" && shasum -a 256 ./* > SHA256SUMS.txt)
           ls -l "$destination"
-          echo "slug=$slug" >> "$GITHUB_OUTPUT"
+          echo "slug=${{ steps.release.outputs.artifactSlug }}-${version}" >> "$GITHUB_OUTPUT"
+          echo "feed=${{ steps.release.outputs.channel }}-mac.yml" >> "$GITHUB_OUTPUT"
 
       - name: Upload workflow artifacts
         uses: actions/upload-artifact@v7
@@ -173,40 +182,45 @@ jobs:
       - name: Publish the GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
+          SLUG: ${{ steps.release.outputs.slug }}
           VERSION: ${{ steps.release.outputs.version }}
-          CHANNEL: ${{ steps.release.outputs.channel }}
-          TAG: ${{ steps.release.outputs.tag }}
           FEED: ${{ steps.assets.outputs.feed }}
+          TAG: ${{ steps.release.outputs.tag }}
+          PRERELEASE: ${{ steps.release.outputs.prerelease }}
         shell: bash
         run: |
           set -euo pipefail
-          if [[ "$CHANNEL" == "rc" ]]; then
-            title="DSH Desktop ${VERSION} — macOS universal · release candidate"
-          else
-            title="DSH Desktop ${VERSION} — macOS universal"
-          fi
+          app_name="$(node -e "
+            const yaml = require('yaml');
+            const fs = require('fs');
+            const registry = yaml.parse(fs.readFileSync('fita/channels.yml', 'utf8'));
+            const channel = registry.channels.find(entry => entry.slug === process.argv[1]);
+            process.stdout.write(channel.appName);
+          " "$SLUG")"
+          title="${app_name} ${VERSION} — macOS universal"
           notes="$(mktemp)"
           {
-            echo "Unsigned macOS universal build cut from \`develop\` of \`aleffita/dsh-desktop\`."
+            echo "Unsigned macOS universal build of the **${SLUG}** channel (\`${app_name}\`), cut from \`${SLUG}\`'s lane of \`aleffita/dsh-desktop\`."
             echo
             echo "| | |"
             echo "|---|---|"
+            echo "| Channel | \`${SLUG}\` |"
             echo "| Version | \`${VERSION}\` |"
-            echo "| Channel | \`${CHANNEL}\` |"
+            echo "| App | \`${app_name}\` |"
             echo "| Platform | macOS universal (arm64 + x64) |"
             echo "| Signing | unsigned, not notarized |"
             echo "| Update feed | ${FEED:-none} |"
             echo
             echo "### Install"
             echo
-            echo '1. Download the DMG below and drag **DSH Desktop** into `/Applications`.'
-            echo '2. If macOS quarantines it: `xattr -dr com.apple.quarantine "/Applications/DSH Desktop.app"`.'
-            echo '3. The build points its updater at this repository, so later releases here are offered in-app.'
+            echo '```sh'
+            echo "yarn fita install ${SLUG}"
+            echo '```'
             echo
-            echo "Artifacts include \`SHA256SUMS.txt\` and, when electron-builder produced it, the electron-updater feed \`latest-mac.yml\`."
+            echo "Downloads both layers: the DMG for a full install and the zip the app updates itself from. Verify with the release's \`SHA256SUMS.txt\`, or run the app and let it update in place."
           } > "$notes"
           args=(--title "$title" --notes-file "$notes")
-          if [[ "$CHANNEL" == "rc" ]]; then args+=(--prerelease); fi
+          if [[ "$PRERELEASE" == "true" ]]; then args+=(--prerelease); fi
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release edit "$TAG" "${args[@]}"
             gh release upload "$TAG" release-assets/* --clobber
