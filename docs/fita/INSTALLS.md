@@ -107,4 +107,3 @@ this table separates what exists from what it will become:
 
 The loop it becomes: land on a lane → tag the lane → the pipeline publishes that channel's
 release → `yarn fita install <channel>` or the running app's updater picks it up.
-

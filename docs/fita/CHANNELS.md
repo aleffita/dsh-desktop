@@ -108,4 +108,3 @@ Consequences for the program, in order:
    the app reaches its own version endpoint instead — so this is latent, not broken. Our
    updater must scope its download/cache paths by channel rather than inherit the shared
    name.
-
