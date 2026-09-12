@@ -154,8 +154,10 @@ describe('Windows NSIS A/B packaging', () => {
     )
     expect(calls[3]?.args).toContain('--reverse')
     expect(calls[3]?.args).toContain('--unsafe-paths')
-    expect(calls[3]?.args).toContain('--directory=.')
     expect(calls[3]?.args).toContain('--include=templates/nsis/include/extractAppPackage.nsh')
+    // A `--directory` prefix lands before `--include` matching, so the pattern would
+    // select no file and the reversal would silently do nothing.
+    expect(calls[3]?.args.some(argument => argument.startsWith('--directory')) ?? false).toBe(false)
     expect(calls[3]?.env.GIT_CEILING_DIRECTORIES)
       .toBe(join(options.outputRoot, '.staged-builder', 'node_modules'))
     expect(calls[4]?.args).toContain(`--prepackaged=${join(options.outputRoot, 'prepackaged', 'win-unpacked')}`)
@@ -265,7 +267,9 @@ describe('Windows NSIS A/B packaging', () => {
       'apply',
       '--reverse',
       '--unsafe-paths',
-      '--directory=.',
+      // Mirrors the production invocation: no `--directory=`, because `--include` is
+      // matched after that prefix is applied and would then select nothing while git
+      // still exits 0.
       '--include=templates/nsis/include/extractAppPackage.nsh',
       fileURLToPath(new URL('../../patches/app-builder-lib@26.15.7.patch', import.meta.url)),
     ], {
