@@ -136,15 +136,14 @@ The app follows the same contract as the installer, one step at a time:
    `fita install --from-dir` against it into a scratch install root, and checks the installed
    app's `CFBundleIdentifier` and version.
 
-   What the app still owes is the hand-over: telling the user the build is ready and quitting so
-   the install manager can replace the bundle, which is the only part it cannot do to itself.
+   The hand-over is where the remaining work is, and the decision is taken: the app installs the
+   build itself — `src/fita-install.ts` mounts the verified DMG read-only, `ditto`s the app it
+   carries and clears the quarantine flag — and it reuses the flag this codebase already has for
+   exactly this situation. `DESKTOP_INSTALLER_QUIT_FLAG` (`--dsh-installer-quit`,
+   `src/desktop-installer-quit.ts`) exists because a launcher or installer replaces the bundle
+   while the app is not running. So the choreography left is: spawn the installing step detached,
+   have it wait for this process to exit, install, relaunch — then quit.
 
-   That hand-over needs one decision before code: the install manager is a repository script
-   (`scripts/fita/fita.mjs`), and a packaged app cannot run it. Either the plugin ships an
-   install entry point of its own, or the app performs the two steps the manager performs for a
-   cached directory — mount the verified DMG read-only, `ditto` the app into
-   `~/Applications/<appName>.app`, clear the quarantine flag — and then relaunches. The second
-   keeps the app self-contained at the cost of duplicating that logic; the first keeps one
-   implementation at the cost of shipping the manager inside the bundle. Whichever is chosen, the
-   manager stays the reference path (`yarn fita:verify-prepared` is the contract both must
-   satisfy).
+   The manager stays the reference path either way: `yarn fita:verify-prepared` is the contract
+   the app's own installing step must satisfy, and it does, because both end up producing a
+   directory the installer accepts and an app with the channel's own bundle identifier.
