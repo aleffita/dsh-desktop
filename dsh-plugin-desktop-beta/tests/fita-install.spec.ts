@@ -4,8 +4,11 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { fitaChannel } from '../src/fita-channel.ts'
 import {
+  FITA_HANDOVER_DESTINATION_FLAG,
+  FITA_HANDOVER_DMG_FLAG,
   fitaInstallPath,
   installFitaPreparedBuild,
+  parseFitaHandoverArguments,
   planFitaHandover,
   type FitaCommandResult,
 } from '../src/fita-install.ts'
@@ -181,5 +184,50 @@ describe('hand-over plan', () => {
       destination: '/Applications/DSH Fita Dev.app',
       home: '/home/operator',
     })).toEqual({ status: 'refused', reason: 'destination-mismatch' })
+  })
+})
+
+describe('hand-over arguments', () => {
+  it('reads both values in either form', () => {
+    expect(parseFitaHandoverArguments([
+      'DSH Fita Dev',
+      `${FITA_HANDOVER_DMG_FLAG}=/cache/dev/a.dmg`,
+      `${FITA_HANDOVER_DESTINATION_FLAG}=/home/operator/Applications/DSH Fita Dev.app`,
+    ])).toEqual({
+      dmgPath: '/cache/dev/a.dmg',
+      destination: '/home/operator/Applications/DSH Fita Dev.app',
+    })
+    expect(parseFitaHandoverArguments([
+      'DSH Fita Dev',
+      FITA_HANDOVER_DMG_FLAG, '/cache/dev/a.dmg',
+      FITA_HANDOVER_DESTINATION_FLAG, '/home/operator/Applications/DSH Fita Dev.app',
+    ])).toEqual({
+      dmgPath: '/cache/dev/a.dmg',
+      destination: '/home/operator/Applications/DSH Fita Dev.app',
+    })
+  })
+
+  it('is undefined for an ordinary launch', () => {
+    expect(parseFitaHandoverArguments(['DSH Fita Dev', '--some-other-flag'])).toBeUndefined()
+  })
+
+  it('refuses a request missing either value', () => {
+    expect(parseFitaHandoverArguments([`${FITA_HANDOVER_DMG_FLAG}=/a.dmg`])).toBeUndefined()
+    expect(parseFitaHandoverArguments([`${FITA_HANDOVER_DESTINATION_FLAG}=/b.app`])).toBeUndefined()
+  })
+
+  it('treats an empty value as absent rather than as a path', () => {
+    expect(parseFitaHandoverArguments([
+      `${FITA_HANDOVER_DMG_FLAG}=`,
+      `${FITA_HANDOVER_DESTINATION_FLAG}=/b.app`,
+    ])).toBeUndefined()
+    expect(parseFitaHandoverArguments([
+      `${FITA_HANDOVER_DMG_FLAG}=/a.dmg`,
+      `${FITA_HANDOVER_DESTINATION_FLAG}=`,
+    ])).toBeUndefined()
+    // A flag followed by another flag has no value.
+    expect(parseFitaHandoverArguments([
+      FITA_HANDOVER_DMG_FLAG, FITA_HANDOVER_DESTINATION_FLAG, '/b.app',
+    ])).toBeUndefined()
   })
 })
