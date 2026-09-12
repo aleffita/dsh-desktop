@@ -25,24 +25,33 @@ unsigned), detach, done. It never touches another channel's install.
 Install locations are per channel (`~/Applications/…`), so no `sudo` and no collisions;
 `/Applications` stays free for whatever the user keeps there deliberately.
 
-## What still has to be stamped per channel
+## Per-channel packaging
 
-The manager can already install one build per channel, but two things are baked at
-packaging time and are still upstream-shaped:
+`scripts/fita/package.mts` reuses the upstream packaging pipeline and stamps the three
+things a channel owns:
 
-1. **App identity** — `productName` and `bundleId` are static. Side-by-side installs want
-   `DSH Fita Dev` / `ai.deepseek.dsh.desktop.dev`, otherwise LaunchServices sees one app in
-   two places and the updater cache is shared.
-2. **Update feed** — electron-builder writes `<feed>-mac.yml` and bakes `channel: <feed>`
-   into `app-update.yml` only when the packaging step passes the channel. Today every build
-   points at the `latest` feed.
+```sh
+yarn fita:package --list
+yarn fita:package --channel dev --dry-run
+yarn fita:package --channel dev
+```
 
-Both are one packaging wrapper away: a fork-side `scripts/fita/package.ts` that reads
-`fita/channels.yml`, resolves the channel from the lane/tag, and forwards
-`--config.productName`, `--config.appId` and `--config.publish.channel` to
-electron-builder while reusing the upstream preflight and verifiers. Tracked as the next
-slice in `README.md`; until it lands, `install` works and side-by-side is by path, not by
-identity.
+- `--config.productName` → the channel's `appName`, so the app bundle and the DMG carry it;
+- `--config.appId` → the channel's `bundleId`, so two channels are two apps, not one app in
+  two places;
+- `--config.publish.channel` → the channel's `feed`, so electron-builder writes
+  `<feed>-mac.yml` and bakes `channel: <feed>` into `app-update.yml`;
+- `extraMetadata.fitaProduct|fitaChannel|fitaFeed` record the channel inside the packaged
+  `package.json`.
+
+Each build writes `fita-channel.json` next to the artifacts (channel, lane, app name, bundle
+id, feed, version, DMG name and sha256), which is what the installer, the release workflow
+and the e2e checks read instead of guessing.
+
+The channel-aware verifier runs inside the same pipeline (`scripts/fita/verify-channel.mts`):
+it mounts the DMG, asserts the bundle name, `CFBundleIdentifier`, version, the baked
+`app-update.yml` channel and repository, and that the feed's `path:` names the DMG that
+shipped with it. A channel that cannot prove its identity does not produce artifacts.
 
 ## CI/CD integration
 

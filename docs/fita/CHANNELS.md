@@ -58,5 +58,6 @@ label, the wordmark colours and the subtitle typography. The renderer resolves
 | release workflow | `channels.yml` | tag pattern, feed name, app name, bundle id, prerelease flag |
 | header renderer | `channels.yml` | chip label, accent, subtitle typography and slug |
 | installer (`fita`) | `channels.yml` | install path, app name, which release to fetch |
+| packaging (`fita:package`) | `channels.yml` + `fita-channel.json` | product name, bundle id, updater feed, manifest provenance |
 | updater | baked `app-update.yml` | `channel: <feed>`, owner/repo of our fork |
 | marketplace source | `channels.yml` | which builds and plugins this source offers |
