@@ -3,6 +3,7 @@ import {
   createDesktopSettingsApi,
   desktopSettingsPaths,
   parseDesktopChannelCheck,
+  parseDesktopChannelDownload,
   parseDesktopChannelsResponse,
 } from '../src/client/desktop-settings-api.ts'
 
@@ -124,5 +125,47 @@ describe('channel client methods', () => {
   it('surfaces a host refusal instead of inventing an answer', async () => {
     const api = createDesktopSettingsApi(jsonFetcher({ error: 'forbidden' }, 403) as never)
     await expect(api.channels()).rejects.toThrow(/403/u)
+  })
+})
+
+describe('channel download parsing', () => {
+  it('keeps what was proven: verified, stored, or a named failure', () => {
+    expect(parseDesktopChannelDownload({
+      status: 'verified',
+      version: '2.0.10-rc.1',
+      name: 'a.dmg',
+      path: '/cache/dev/a.dmg',
+    })).toEqual({ status: 'verified', version: '2.0.10-rc.1', name: 'a.dmg', path: '/cache/dev/a.dmg' })
+    expect(parseDesktopChannelDownload({
+      status: 'stored',
+      version: '2.0.10-rc.1',
+      name: 'a.dmg',
+      path: '/cache/dev/a.dmg',
+    })).toMatchObject({ status: 'stored' })
+    for (const reason of ['checksum-mismatch', 'too-large', 'unknown-channel'] as const) {
+      expect(parseDesktopChannelDownload({ status: 'failed', channel: 'dev', reason }))
+        .toEqual({ status: 'failed', channel: 'dev', reason })
+    }
+  })
+
+  it('refuses an unknown reason and a truncated success', () => {
+    expect(() => parseDesktopChannelDownload({ status: 'failed', channel: 'dev', reason: 'aliens' })).toThrow()
+    expect(() => parseDesktopChannelDownload({ status: 'verified', version: '2.0.9', name: 'a.dmg' })).toThrow()
+    expect(() => parseDesktopChannelDownload({ status: 'downloaded' })).toThrow()
+  })
+
+  it('posts the channel it was asked to prepare', async () => {
+    const fetcher = jsonFetcher({
+      status: 'verified',
+      version: '2.0.10-rc.1',
+      name: 'a.dmg',
+      path: '/cache/dev/a.dmg',
+    })
+    const api = createDesktopSettingsApi(fetcher as never)
+    await expect(api.prepareChannel('dev')).resolves.toMatchObject({ status: 'verified' })
+    expect(fetcher).toHaveBeenCalledWith(
+      desktopSettingsPaths.channelDownload,
+      expect.objectContaining({ method: 'POST' }),
+    )
   })
 })
