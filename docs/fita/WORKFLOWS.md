@@ -42,7 +42,11 @@ guessing whether the fork is current.
    docs, market dependency direction, package and runtime gates).
 2. `yarn workspace dsh-plugin-desktop check:mac-package` for anything that reaches the app.
 3. `yarn fita list` sanity when the change touches `fita/channels.yml`.
-4. The evidence recorded in the commit or the release notes — a build that cannot say what
+4. `yarn check:diff` before pushing: the CI `changes` job runs the same whitespace check over
+   the diff, and it rejects a file ending in a blank line. It is deliberately not part of
+   `check:layout` — a pull-request checkout has no local `dev` to compare against — so it is a
+   pre-push step, and the one time it was skipped the pipeline failed in twenty seconds.
+5. The evidence recorded in the commit or the release notes — a build that cannot say what
    it proved is not a release candidate.
 
 ## A gate failure that was not ours, and how it was fixed

@@ -593,6 +593,7 @@
     "check:architecture": "yarn test:architecture-gates && node scripts/verify-market-dependency-direction.mjs",
     "check:vendored-runtime": "node scripts/sync-vendored-runtime.mjs --check --channel stable && node scripts/sync-vendored-runtime.mjs --check --channel beta",
     "check:desktop-variants": "node scripts/verify-desktop-variants.mjs",
+    "check:diff": "node scripts/verify-diff-whitespace.mjs",
     "check:fita-channels": "node scripts/fita/channels-module.mts --check",
     "fita:channels": "node scripts/fita/channels-module.mts",
     "check:layout": "yarn check:bilingual-docs && yarn check:architecture && yarn check:vendored-runtime && yarn check:desktop-variants && yarn check:fita-channels && node scripts/verify-layout.mjs",
