@@ -246,6 +246,17 @@ body[data-dsh-desktop-mode="extended"]:not([data-dsh-desktop-material="off"]) {
   color: var(--dsw-alias-label-secondary);
   font-size: 11px;
 }
+.dshDesktopVersionChannelSelect {
+  max-width: 140px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--dsw-alias-label-primary);
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+}
 .dshDesktopVersionPopoverChannel strong {
   color: var(--dsw-alias-label-primary);
   font-size: 12px;

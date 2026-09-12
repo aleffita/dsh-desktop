@@ -55,6 +55,7 @@ export function DesktopVersionControl({
   const [preparing, setPreparing] = useState(false)
   const [outcome, setOutcome] = useState<ChannelOutcome>({ kind: 'idle' })
   const [catalogue, setCatalogue] = useState<DesktopChannelsResponse | undefined>(undefined)
+  const [asked, setAsked] = useState<string | undefined>(undefined)
   useEffect(() => {
     if (channels === undefined) return
     let active = true
@@ -65,14 +66,17 @@ export function DesktopVersionControl({
   }, [channels])
   const current = catalogue?.current ?? null
   const running = catalogue?.channels.find(channel => channel.slug === current)
+  // What the popover is asking about: the running channel unless the user picked
+  // another one to compare against.
+  const target = asked ?? current
   const runCheck = (): void => {
     if (checking) return
     setChecking(true)
     setOutcome({ kind: 'idle' })
-    // A stamped build asks its own channel; an unstamped one keeps the upstream
-    // check, because we have no channel to ask on its behalf.
-    const task = current !== null && checkChannel !== undefined
-      ? checkChannel(current).then(result => { setOutcome({ kind: 'channel', result }) })
+    // A stamped build asks its channel; an unstamped one keeps the upstream check,
+    // because we have no channel to ask on its behalf.
+    const task = target !== null && checkChannel !== undefined
+      ? checkChannel(target).then(result => { setOutcome({ kind: 'channel', result }) })
       : checkForUpdates().then(() => { setOutcome({ kind: 'upstream' }) })
     void task
       .catch(() => { setOutcome({ kind: 'failed' }) })
@@ -80,10 +84,14 @@ export function DesktopVersionControl({
   }
   // A build is only worth preparing when the check found a newer one that carries
   // an artifact; anything else would download nothing.
+  // Only the running channel may be prepared: installing another channel's build
+  // over this bundle would replace one channel with a different product.
   const offered = outcome.kind === 'channel'
     && outcome.result.status === 'offer'
     && outcome.result.newer
     && outcome.result.dmg !== null
+    && asked === undefined
+    && (current === null || outcome.result.channel === current)
   const runPrepare = (): void => {
     if (preparing || current === null || prepareChannel === undefined) return
     setPreparing(true)
@@ -111,7 +119,22 @@ export function DesktopVersionControl({
         </div>
         <div className="dshDesktopVersionPopoverChannel">
           <span>{t('channelLabel')}</span>
-          <strong>{running?.name ?? t('channelUnknown')}</strong>
+          {catalogue === undefined || current === null
+            ? <strong>{running?.name ?? t('channelUnknown')}</strong>
+            : (
+              <select
+                className="dshDesktopVersionChannelSelect"
+                aria-label={t('channelLabel')}
+                value={target ?? current}
+                onChange={event => { setAsked(event.target.value === current ? undefined : event.target.value) }}
+              >
+                {catalogue.channels.map(channel => (
+                  <option key={channel.slug} value={channel.slug}>
+                    {channel.slug === current ? `${channel.name} (${t('channelCurrent')})` : channel.name}
+                  </option>
+                ))}
+              </select>
+            )}
         </div>
         <Button
           className="dshDesktopVersionCheckButton"
