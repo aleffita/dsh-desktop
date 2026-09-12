@@ -148,6 +148,12 @@ export class ElectronDesktopRuntime implements DesktopRuntime {
       get currentVersion() { return PRODUCT_VERSION },
       get releaseChannel() { return DESKTOP_RELEASE_CHANNEL },
       ...(fitaChannel === undefined ? {} : { fitaChannel }),
+      quitForHandover: async () => {
+        const spec = this.scheduled
+        if (spec === undefined) throw new Error('dsh-plugin-desktop: no active shell can exit for an update')
+        this.quitting = true
+        spec.requestQuit(0)
+      },
       get statePath() { return join(app.getPath('userData'), 'updates', 'state.json') },
       ...(installationId === undefined ? {} : { installationId }),
       request: (url, init) => net.fetch(url, init),

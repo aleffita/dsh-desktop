@@ -111,6 +111,12 @@ export interface DesktopUpdateAdapter {
   readonly releaseChannel?: DesktopReleaseChannel
   /** Channel this build was stamped with, when it is one of ours. */
   readonly fitaChannel?: FitaChannel
+  /**
+   * Leave, in order, so a started hand-over can replace this bundle.
+   *
+   * Not a restart: the child the app started is what relaunches, after it has installed.
+   */
+  readonly quitForHandover?: () => Promise<void>
   /** Private file used to suppress repeated background update announcements. */
   readonly statePath: string
   /** Pseudonymous installation UUID attached only to the fixed version endpoint. */
