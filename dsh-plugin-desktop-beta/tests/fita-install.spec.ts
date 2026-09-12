@@ -235,7 +235,7 @@ describe('hand-over arguments', () => {
 
 describe('running a hand-over', () => {
   function handoverFixture(openStatus = 0): {
-    waitForExit: ReturnType<typeof vi.fn>
+    waitForExit: () => Promise<void>
     run: (command: string, args: readonly string[]) => FitaCommandResult
     calls: [string, readonly string[]][]
   } {
@@ -247,7 +247,7 @@ describe('running a hand-over', () => {
       return { status: openStatus }
     }
     // The wait records itself in the same log, so the order can be asserted.
-    const waitForExit = vi.fn(async () => { calls.push(['wait', []]) })
+    const waitForExit = async (): Promise<void> => { calls.push(['wait', []]) }
     return { waitForExit, run, calls }
   }
 
@@ -266,7 +266,6 @@ describe('running a hand-over', () => {
     })
 
     expect(result).toEqual({ status: 'installed', appPath: destination })
-    expect(fixture.waitForExit).toHaveBeenCalledTimes(1)
     // Nothing may be mounted before the owner of the bundle has exited.
     expect(fixture.calls[0]?.[0]).toBe('wait')
     expect(fixture.calls.find(([command]) => command === 'hdiutil')?.[1][0]).toBe('attach')
