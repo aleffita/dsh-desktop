@@ -51,6 +51,24 @@ Everything above is data: `header` in `fita/channels.yml` holds the wordmark, th
 label, the wordmark colours and the subtitle typography. The renderer resolves
 `color: channel` to the active channel's `accent`.
 
+## Channel manifest
+
+Every channel build writes `fita-channel.json` next to its artifacts. It is the only
+description of what was actually built, and consumers read it instead of re-deriving names:
+
+| field | example | read by |
+| --- | --- | --- |
+| `channel`, `name`, `lane` | `dev`, `Dev`, `dev` | installer, e2e, workflow |
+| `product`, `version` | `DSH Fita`, `2.0.9` | workflow, installer |
+| `appName`, `artifactSlug`, `bundleId` | `DSH Fita Dev`, `DSH-Fita-Dev`, `ai.deepseek.dsh.desktop.dev` | installer, e2e |
+| `feed`, `feedFile` | `dev`, `dev-mac.yml` | workflow, updater |
+| `accent`, `prerelease` | `#FF4D9D`, `true` | header, workflow |
+| `dmg`, `dmgSha256` | `DSH-Fita-Dev-2.0.9-universal.dmg`, `…` | installer, e2e |
+| `electronBuilderFlags` | the stamped flags | whoever debugs a build |
+
+The channel verifier runs *before* the manifest is written, so a build that cannot prove
+its identity produces neither: no artifacts, no manifest, nothing to ship.
+
 ## Consumption map
 
 | consumer | reads | uses |
