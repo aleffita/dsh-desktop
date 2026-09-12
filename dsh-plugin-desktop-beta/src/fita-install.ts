@@ -149,6 +149,49 @@ function defaultRunner(command: string, args: readonly string[]): FitaCommandRes
   return { status: result.status ?? 1 }
 }
 
+/** What a hand-over process produced. */
+export type FitaHandoverOutcome =
+  | { readonly status: 'installed'; readonly appPath: string }
+  | { readonly status: 'installed-not-relaunched'; readonly appPath: string }
+  | { readonly status: 'failed'; readonly reason: FitaInstallFailure }
+
+/** Inputs for one hand-over process. */
+export interface FitaHandoverRunOptions {
+  /** Verified DMG to install from. */
+  readonly dmgPath: string
+  /** Bundle to replace. */
+  readonly destination: string
+  /** Command runner, shared with the install step. */
+  readonly run?: FitaCommandRunner
+  /** Resolves once the process that owns the bundle has exited. */
+  readonly waitForExit: () => Promise<void>
+}
+
+/**
+ * Run a hand-over: wait for the running app to exit, install, relaunch.
+ *
+ * The order is the whole point — a bundle cannot be replaced while the app it belongs
+ * to is running — so the wait happens before anything is mounted. An install that
+ * succeeds but cannot relaunch is reported as such rather than as a failure: the user
+ * has a new build on disk and needs to know it was not started.
+ * @param options - DMG, destination, command runner and the wait for the parent.
+ * @returns what happened, in those three states.
+ */
+export async function runFitaHandover(options: FitaHandoverRunOptions): Promise<FitaHandoverOutcome> {
+  await options.waitForExit()
+  const installed = await installFitaPreparedBuild({
+    dmgPath: options.dmgPath,
+    destination: options.destination,
+    ...(options.run === undefined ? {} : { run: options.run }),
+  })
+  if (installed.status === 'failed') return { status: 'failed', reason: installed.reason }
+  const run = options.run ?? defaultRunner
+  if (run('open', ['-a', installed.appPath]).status !== 0) {
+    return { status: 'installed-not-relaunched', appPath: installed.appPath }
+  }
+  return { status: 'installed', appPath: installed.appPath }
+}
+
 /**
  * Mount one DMG, copy the app it carries, and clear the quarantine flag.
  * @param options - verified DMG, destination bundle and optional command runner.

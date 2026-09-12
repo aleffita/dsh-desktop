@@ -10,6 +10,7 @@ import {
   installFitaPreparedBuild,
   parseFitaHandoverArguments,
   planFitaHandover,
+  runFitaHandover,
   type FitaCommandResult,
 } from '../src/fita-install.ts'
 
@@ -229,5 +230,83 @@ describe('hand-over arguments', () => {
     expect(parseFitaHandoverArguments([
       FITA_HANDOVER_DMG_FLAG, FITA_HANDOVER_DESTINATION_FLAG, '/b.app',
     ])).toBeUndefined()
+  })
+})
+
+describe('running a hand-over', () => {
+  function handoverFixture(openStatus = 0): {
+    waitForExit: ReturnType<typeof vi.fn>
+    run: (command: string, args: readonly string[]) => FitaCommandResult
+    calls: [string, readonly string[]][]
+  } {
+    const base = dmgRunner(['DSH Fita Dev.app'])
+    const calls: [string, readonly string[]][] = base.calls
+    const run = (command: string, args: readonly string[]): FitaCommandResult => {
+      if (command !== 'open') return base.run(command, args)
+      calls.push([command, args])
+      return { status: openStatus }
+    }
+    // The wait records itself in the same log, so the order can be asserted.
+    const waitForExit = vi.fn(async () => { calls.push(['wait', []]) })
+    return { waitForExit, run, calls }
+  }
+
+  it('waits for the running app before touching the bundle, then relaunches it', async () => {
+    const root = scratch()
+    const dmg = join(root, 'a.dmg')
+    writeFileSync(dmg, 'dmg')
+    const destination = join(root, 'Applications', 'DSH Fita Dev.app')
+    const fixture = handoverFixture()
+
+    const result = await runFitaHandover({
+      dmgPath: dmg,
+      destination,
+      run: fixture.run,
+      waitForExit: fixture.waitForExit,
+    })
+
+    expect(result).toEqual({ status: 'installed', appPath: destination })
+    expect(fixture.waitForExit).toHaveBeenCalledTimes(1)
+    // Nothing may be mounted before the owner of the bundle has exited.
+    expect(fixture.calls[0]?.[0]).toBe('wait')
+    expect(fixture.calls.find(([command]) => command === 'hdiutil')?.[1][0]).toBe('attach')
+    expect(fixture.calls).toContainEqual(['open', ['-a', destination]])
+  })
+
+  it('reports an install failure and never relaunches', async () => {
+    const root = scratch()
+    const dmg = join(root, 'a.dmg')
+    writeFileSync(dmg, 'dmg')
+    const destination = join(root, 'Applications', 'DSH Fita Dev.app')
+    const fixture = handoverFixture()
+    const run = (command: string, args: readonly string[]): FitaCommandResult =>
+      command === 'hdiutil' && args[0] === 'attach' ? { status: 1 } : fixture.run(command, args)
+
+    const result = await runFitaHandover({
+      dmgPath: dmg,
+      destination,
+      run,
+      waitForExit: fixture.waitForExit,
+    })
+
+    expect(result).toEqual({ status: 'failed', reason: 'mount' })
+    expect(fixture.calls.some(([command]) => command === 'open')).toBe(false)
+  })
+
+  it('distinguishes an installed build that could not be relaunched', async () => {
+    const root = scratch()
+    const dmg = join(root, 'a.dmg')
+    writeFileSync(dmg, 'dmg')
+    const destination = join(root, 'Applications', 'DSH Fita Dev.app')
+    const fixture = handoverFixture(1)
+
+    const result = await runFitaHandover({
+      dmgPath: dmg,
+      destination,
+      run: fixture.run,
+      waitForExit: fixture.waitForExit,
+    })
+
+    expect(result).toEqual({ status: 'installed-not-relaunched', appPath: destination })
   })
 })
