@@ -2,6 +2,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import { describe, expect, it, vi } from 'vitest'
 import { fitaChannel } from '../src/fita-channel.ts'
 import {
+  handleDesktopChannelApplyRequest,
   handleDesktopChannelCheckRequest,
   handleDesktopChannelDownloadRequest,
   handleDesktopChannelsRequest,
@@ -268,5 +269,81 @@ describe('channel download route', () => {
     )
     expect(status()).toBe(500)
     expect(reportError).toHaveBeenCalledWith('prepare a channel build', expect.any(Error))
+  })
+})
+
+describe('channel apply route', () => {
+  it('starts the update and names the layer it turned out to be', async () => {
+    const apply = vi.fn(async () => ({ status: 'started' as const, channel: 'dev', layer: 'payload' as const }))
+    const { res, body, status } = response()
+    await handleDesktopChannelApplyRequest(postRequest({ channel: 'dev' }), res, origin, apply)
+    expect(status()).toBe(200)
+    expect(body()).toEqual({ status: 'started', channel: 'dev', layer: 'payload' })
+    expect(apply).toHaveBeenCalledWith(expect.objectContaining({ slug: 'dev' }))
+  })
+
+  it('names every way an apply can fail', async () => {
+    for (const reason of ['no-feed', 'unverifiable', 'checksum-mismatch', 'download'] as const) {
+      const { res, body } = response()
+      await handleDesktopChannelApplyRequest(
+        postRequest({ channel: 'dev' }),
+        res,
+        origin,
+        async () => ({ status: 'failed' as const, channel: 'dev', reason }),
+      )
+      expect(body()).toEqual({ status: 'failed', channel: 'dev', reason })
+    }
+  })
+
+  it('answers an undeclared channel without applying anything', async () => {
+    const apply = vi.fn()
+    const { res, body, status } = response()
+    await handleDesktopChannelApplyRequest(postRequest({ channel: 'stable' }), res, origin, apply)
+    expect(status()).toBe(200)
+    expect(body()).toEqual({ status: 'failed', channel: 'stable', reason: 'unknown-channel' })
+    expect(apply).not.toHaveBeenCalled()
+  })
+
+  it('refuses a malformed body, another method, another origin, and reports a crash', async () => {
+    const apply = vi.fn()
+    for (const payload of [{}, { channel: 7 }]) {
+      const { res, status } = response()
+      await handleDesktopChannelApplyRequest(postRequest(payload), res, origin, apply)
+      expect(status()).toBe(400)
+    }
+    const wrongMethod = response()
+    await handleDesktopChannelApplyRequest(
+      { method: 'GET', headers: {}, socket: {} } as unknown as IncomingMessage,
+      wrongMethod.res,
+      origin,
+      apply,
+    )
+    expect(wrongMethod.status()).toBe(405)
+    const crossOrigin = response()
+    await handleDesktopChannelApplyRequest(
+      {
+        method: 'POST',
+        headers: { host: '127.0.0.1:43120', origin: 'https://example.test', 'content-type': 'application/json' },
+        socket: { remoteAddress: '127.0.0.1' },
+        async * [Symbol.asyncIterator]() { yield Buffer.from('{"channel":"dev"}') },
+      } as unknown as IncomingMessage,
+      crossOrigin.res,
+      origin,
+      apply,
+    )
+    expect(crossOrigin.status()).toBe(403)
+    expect(apply).not.toHaveBeenCalled()
+
+    const reportError = vi.fn()
+    const crashed = response()
+    await handleDesktopChannelApplyRequest(
+      postRequest({ channel: 'dev' }),
+      crashed.res,
+      origin,
+      async () => { throw new Error('boom') },
+      reportError,
+    )
+    expect(crashed.status()).toBe(500)
+    expect(reportError).toHaveBeenCalledWith('apply a channel update', expect.any(Error))
   })
 })

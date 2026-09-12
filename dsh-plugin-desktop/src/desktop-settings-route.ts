@@ -8,6 +8,7 @@ import type { DesktopSettingsPostResponse } from './desktop-settings-controller.
 import { fitaChannel, FITA_CHANNELS, type FitaChannel } from './fita-channel.ts'
 import type { FitaChannelCheck } from './fita-release-source.ts'
 import type {
+  DesktopChannelApplyResponse,
   DesktopChannelCheckResponse,
   DesktopChannelDownloadResponse,
   DesktopChannelsResponse,
@@ -639,5 +640,51 @@ export async function handleDesktopChannelCheckRequest(
   } catch (cause) {
     reportError('check a channel', cause)
     finishJson(res, 500, error('the channel could not be checked'))
+  }
+}
+
+/**
+ * Apply the update a channel offers.
+ *
+ * The renderer asks for a channel, never for a file or a layer: the Host checks the
+ * channel, reads its feed to see which layer the update is, downloads and verifies that
+ * file, and starts the hand-over that applies it while this app exits. A request that
+ * cannot be completed leaves the app running, because a failed update must not be a state
+ * the user cannot get out of.
+ * @param req - incoming request.
+ * @param res - response to finish.
+ * @param expectedOrigin - loopback origin every settings request must match.
+ * @param apply - the apply implementation, bound to the Host generation.
+ * @param reportError - sink for unexpected failures.
+ */
+export async function handleDesktopChannelApplyRequest(
+  req: IncomingMessage,
+  res: ServerResponse,
+  expectedOrigin: string,
+  apply: (channel: FitaChannel) => Promise<DesktopChannelApplyResponse>,
+  reportError: (operation: string, cause: unknown) => void = () => {},
+): Promise<void> {
+  if (req.method !== 'POST') return finishJson(res, 405, error('method not allowed'), 'POST')
+  if (!isSameOriginLoopbackRequest(req, expectedOrigin, true)) {
+    return finishJson(res, 403, error('forbidden'))
+  }
+  const value = await parsePostBody(req, res)
+  if (value === INVALID_BODY) return
+  const slug = typeof value === 'object' && value !== null
+    ? (value as { channel?: unknown }).channel
+    : undefined
+  if (typeof slug !== 'string' || slug.length === 0) {
+    return finishJson(res, 400, error('invalid channel apply request'))
+  }
+  const channel = fitaChannel(slug)
+  if (channel === undefined) {
+    const response: DesktopChannelApplyResponse = { status: 'failed', channel: slug, reason: 'unknown-channel' }
+    return finishJson(res, 200, response)
+  }
+  try {
+    finishJson(res, 200, await apply(channel))
+  } catch (cause) {
+    reportError('apply a channel update', cause)
+    finishJson(res, 500, error('the update could not be applied'))
   }
 }

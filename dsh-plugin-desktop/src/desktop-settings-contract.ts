@@ -46,6 +46,9 @@ export const DESKTOP_CHANNEL_CHECK_PATH = '/api/desktop/updates/channel-check'
 /** Download and verify one channel's build into its own cache directory. */
 export const DESKTOP_CHANNEL_DOWNLOAD_PATH = '/api/desktop/updates/channel-download'
 
+/** Apply the update a channel offers: download its layer, then hand over and quit. */
+export const DESKTOP_CHANNEL_APPLY_PATH = '/api/desktop/updates/channel-apply'
+
 /** Export one local diagnostic archive through the launcher-owned flow. */
 export const DESKTOP_DIAGNOSTICS_EXPORT_PATH = '/api/desktop/diagnostics/export'
 
@@ -296,6 +299,41 @@ export type DesktopChannelDownloadResponse =
     /** Which step failed. */
     readonly reason: DesktopChannelDownloadOutcomeFailure
   }
+
+/** Exact body accepted by the channel apply endpoint. */
+export interface DesktopChannelApplyRequest {
+  /** Registry slug whose update should be applied. */
+  readonly channel: string
+}
+
+/** Outcome of starting to apply one channel's update. */
+export type DesktopChannelApplyResponse =
+  | {
+    readonly status: 'started'
+    /** Channel whose update is being applied. */
+    readonly channel: string
+    /** Layer the update turned out to be. */
+    readonly layer: 'payload' | 'full'
+  }
+  | {
+    readonly status: 'failed'
+    /** Channel that was asked. */
+    readonly channel: string
+    /** Which step failed. */
+    readonly reason: DesktopChannelApplyOutcomeFailure
+  }
+
+/** Reasons applying a channel update can fail, as the renderer may see them. */
+export type DesktopChannelApplyOutcomeFailure =
+  | 'unknown-channel'
+  | 'no-release'
+  | 'no-feed'
+  | 'unverifiable'
+  | 'download'
+  | 'checksum-missing'
+  | 'checksum-mismatch'
+  | 'too-large'
+  | 'io'
 
 /** Reasons a channel download can fail, as the renderer may see them. */
 export type DesktopChannelDownloadOutcomeFailure =
