@@ -40,3 +40,16 @@ is how the plugin is resolved; nothing has to be renamed after the fact.
 `publishConfig` then points at GitHub Packages (`https://npm.pkg.github.com`) with
 `access: restricted`, the workflow uses `GITHUB_TOKEN` with `packages: write`, and npm stays out
 of it entirely. A package already pointing at `registry.npmjs.org` is a bug here, not a default.
+
+## How it runs
+
+`yarn fita:packages` reports what would be published and refuses a scoped package that is
+private or still points at npm; `--publish` is what actually publishes, with
+`NODE_AUTH_TOKEN` supplied. `.github/workflows/packages-release.yml` runs both halves on a lane
+tag with `packages: write`. Today it reports the honest state:
+
+```
+fita-packages: nothing to publish — no package is named @aleffita/…
+```
+
+That stays true until the first plugin we author lands with a scoped name.

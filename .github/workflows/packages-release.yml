@@ -1,0 +1,46 @@
+name: Packages release
+
+# Publishes the plugins we author to GitHub Packages, which is the only registry we use:
+# a package is ours to publish when it is named `@aleffita/…`, is not private, and points its
+# `publishConfig.registry` at GitHub Packages. Nothing here touches npm.
+#
+# Before the first scoped plugin exists this workflow reports "nothing to publish" and
+# succeeds, which is the honest state rather than a red pipeline.
+
+on:
+  push:
+    tags:
+      - 'v*'
+      - 'beta-v*'
+      - 'dev-v*'
+      - 'pr-*-v*'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  packages:
+    name: Publish our packages
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22.23.2
+          registry-url: https://npm.pkg.github.com
+          scope: '@aleffita'
+      - run: corepack enable
+      - run: yarn install --immutable
+
+      - name: Check what would be published
+        run: yarn fita:packages
+
+      - name: Publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: yarn fita:packages --publish
