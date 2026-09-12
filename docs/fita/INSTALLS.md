@@ -107,3 +107,24 @@ this table separates what exists from what it will become:
 
 The loop it becomes: land on a lane → tag the lane → the pipeline publishes that channel's
 release → `yarn fita install <channel>` or the running app's updater picks it up.
+
+## The in-app update flow, and where it stops
+
+The app follows the same contract as the installer, one step at a time:
+
+1. **Identify.** The running build reads its own stamped channel (see `CHANNELS.md`). A build
+   with no stamp is not ours to update and keeps the upstream check.
+2. **Check.** `POST /api/desktop/updates/channel-check` asks that channel's releases and answers
+   `offer`, `none`, or `failed` with a named reason. The titlebar shows whichever it got —
+   "could not tell" is never rendered as "up to date".
+3. **Prepare.** `POST /api/desktop/updates/channel-download` downloads the build into
+   `<userData>/updates/channels/<slug>/` and compares its SHA-256 with the release's
+   `SHA256SUMS.txt`. The answer says what was proven: `verified`, or `stored` when the release
+   published no checksums.
+4. **Apply — still to come.** The app cannot replace itself while it runs. The intended path is
+   convergence with the installer rather than a second install mechanism: the app's cache
+   directory becomes a directory `fita install --from-dir` already understands, because the app
+   can write the `fita-channel.json` the installer reads from facts it has just verified
+   (channel, version, DMG name, `dmgSha256`). Then `yarn fita install <slug> --from-dir
+   <userData>/updates/channels/<slug>` installs side by side with no new flags, and the app only
+   has to hand over the quit/relaunch it already owns.

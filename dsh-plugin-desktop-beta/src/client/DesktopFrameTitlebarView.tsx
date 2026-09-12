@@ -2,7 +2,12 @@
 
 import { LayoutTemplate, PanelTop, RefreshCw, Sparkles } from 'lucide-react'
 import { useEffect, useState } from 'react'
-import type { DesktopChannelCheck, DesktopChannelsResponse, DesktopSettingsApi } from './desktop-settings-api.ts'
+import type {
+  DesktopChannelCheck,
+  DesktopChannelDownload,
+  DesktopChannelsResponse,
+  DesktopSettingsApi,
+} from './desktop-settings-api.ts'
 import type { DesktopClientEnvironment, DesktopClientMode } from './environment.ts'
 import { DesktopNativeActions } from './DesktopNativeActions.tsx'
 import { Button } from '../native-ui/components/ui/button.tsx'
@@ -18,7 +23,7 @@ export interface DesktopFrameTitlebarInjected {
   readonly api: Pick<
     DesktopSettingsApi,
     'openTerminal' | 'restart' | 'restartToRecovery' | 'reloadRenderer' | 'toggleDeveloperTools' | 'checkForUpdates'
-  > & Partial<Pick<DesktopSettingsApi, 'channels' | 'checkChannel'>>
+  > & Partial<Pick<DesktopSettingsApi, 'channels' | 'checkChannel' | 'prepareChannel'>>
   readonly remoteControl?: { readonly seen: boolean; open(): Promise<void> }
   readonly setMode: (mode: DesktopClientMode) => Promise<void>
 }
@@ -29,21 +34,25 @@ type ChannelOutcome =
   | { readonly kind: 'upstream' }
   | { readonly kind: 'channel'; readonly result: DesktopChannelCheck }
   | { readonly kind: 'failed' }
+  | { readonly kind: 'download'; readonly result: DesktopChannelDownload }
 
 export function DesktopVersionControl({
   version,
   checkForUpdates,
   channels,
   checkChannel,
+  prepareChannel,
   t,
 }: {
   readonly version: string
   readonly checkForUpdates: () => Promise<void>
   readonly channels?: () => Promise<DesktopChannelsResponse>
   readonly checkChannel?: (channel: string) => Promise<DesktopChannelCheck>
+  readonly prepareChannel?: (channel: string) => Promise<DesktopChannelDownload>
   readonly t: (key: DesktopSettingsLocaleKey) => string
 }) {
   const [checking, setChecking] = useState(false)
+  const [preparing, setPreparing] = useState(false)
   const [outcome, setOutcome] = useState<ChannelOutcome>({ kind: 'idle' })
   const [catalogue, setCatalogue] = useState<DesktopChannelsResponse | undefined>(undefined)
   useEffect(() => {
@@ -68,6 +77,20 @@ export function DesktopVersionControl({
     void task
       .catch(() => { setOutcome({ kind: 'failed' }) })
       .finally(() => { setChecking(false) })
+  }
+  // A build is only worth preparing when the check found a newer one that carries
+  // an artifact; anything else would download nothing.
+  const offered = outcome.kind === 'channel'
+    && outcome.result.status === 'offer'
+    && outcome.result.newer
+    && outcome.result.dmg !== null
+  const runPrepare = (): void => {
+    if (preparing || current === null || prepareChannel === undefined) return
+    setPreparing(true)
+    void prepareChannel(current)
+      .then(result => { setOutcome({ kind: 'download', result }) })
+      .catch(() => { setOutcome({ kind: 'failed' }) })
+      .finally(() => { setPreparing(false) })
   }
   const visibleVersion = `v${version}`
   return (
@@ -100,10 +123,48 @@ export function DesktopVersionControl({
           <RefreshCw aria-hidden="true" />
           <span>{t(checking ? 'checkingForUpdates' : 'checkForUpdates')}</span>
         </Button>
+        {offered && prepareChannel !== undefined && (
+          <Button
+            className="dshDesktopVersionCheckButton"
+            disabled={preparing}
+            size="sm"
+            variant="outline"
+            onClick={runPrepare}
+          >
+            <span>{t(preparing ? 'channelPreparing' : 'channelPrepare')}</span>
+          </Button>
+        )}
         <ChannelOutcomeLine outcome={outcome} t={t} />
       </HoverCardContent>
     </HoverCard>
   )
+}
+
+/** How one prepared build is presented, without React. */
+export interface ChannelDownloadPresentation {
+  /** Whether the line is an error or information. */
+  readonly severity: 'note' | 'error'
+  /** Locale key to render. */
+  readonly key: DesktopSettingsLocaleKey
+  /** Path to show, when a file is on disk. */
+  readonly path?: string
+}
+
+/**
+ * Turn a preparation result into the one line the user sees.
+ *
+ * `stored` is presented as what it is: the release published no checksums, so the
+ * file is on disk and nothing more was proven.
+ * @param result - outcome of preparing one channel's build.
+ * @returns the severity, the copy, and a path when there is a file.
+ */
+export function presentChannelDownload(result: DesktopChannelDownload): ChannelDownloadPresentation {
+  if (result.status === 'failed') return { severity: 'error', key: 'channelPrepareFailed' }
+  return {
+    severity: 'note',
+    key: result.status === 'verified' ? 'channelPreparedVerified' : 'channelPreparedStored',
+    path: result.path,
+  }
 }
 
 /** How one channel check is presented, without React. */
@@ -150,6 +211,16 @@ function ChannelOutcomeLine({
   }
   if (outcome.kind === 'upstream') {
     return <span className="dshDesktopVersionCheckNote" role="status">{t('channelNone')}</span>
+  }
+  if (outcome.kind === 'download') {
+    const prepared = presentChannelDownload(outcome.result)
+    const className = prepared.severity === 'error' ? 'dshDesktopVersionCheckError' : 'dshDesktopVersionCheckNote'
+    const role = prepared.severity === 'error' ? 'alert' : 'status'
+    return (
+      <span className={className} role={role}>
+        {prepared.path === undefined ? t(prepared.key) : `${t(prepared.key)} ${prepared.path}`}
+      </span>
+    )
   }
   const presentation = presentChannelCheck(outcome.result)
   const className = presentation.severity === 'error' ? 'dshDesktopVersionCheckError' : 'dshDesktopVersionCheckNote'
@@ -270,6 +341,7 @@ export function DesktopFrameTitlebarView({ api, environment, setMode, t, remoteC
           checkForUpdates={api.checkForUpdates}
           {...(api.channels === undefined ? {} : { channels: api.channels })}
           {...(api.checkChannel === undefined ? {} : { checkChannel: api.checkChannel })}
+          {...(api.prepareChannel === undefined ? {} : { prepareChannel: api.prepareChannel })}
           t={t}
         />
         <DesktopModeControl

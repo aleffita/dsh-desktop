@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { presentChannelCheck } from '../src/client/DesktopFrameTitlebarView.tsx'
+import { presentChannelCheck, presentChannelDownload } from '../src/client/DesktopFrameTitlebarView.tsx'
 import { en, zh } from '../src/client/desktop-settings-locales.ts'
 
 const dev = { slug: 'dev', name: 'Dev' }
@@ -60,5 +60,34 @@ describe('channel check presentation', () => {
     expect(zh.channelLabel).toBeTruthy()
     expect(en.channelUnknown).toBeTruthy()
     expect(dev.slug).toBe('dev')
+  })
+})
+
+describe('prepared build presentation', () => {
+  it('shows the path for a verified build, and for a stored one says what it is', () => {
+    expect(presentChannelDownload({
+      status: 'verified',
+      version: '2.0.10-rc.1',
+      name: 'a.dmg',
+      path: '/cache/dev/a.dmg',
+    })).toEqual({ severity: 'note', key: 'channelPreparedVerified', path: '/cache/dev/a.dmg' })
+    expect(presentChannelDownload({
+      status: 'stored',
+      version: '2.0.10-rc.1',
+      name: 'a.dmg',
+      path: '/cache/dev/a.dmg',
+    })).toEqual({ severity: 'note', key: 'channelPreparedStored', path: '/cache/dev/a.dmg' })
+  })
+
+  it('reports a failed preparation without a path', () => {
+    expect(presentChannelDownload({ status: 'failed', channel: 'dev', reason: 'checksum-mismatch' }))
+      .toEqual({ severity: 'error', key: 'channelPrepareFailed' })
+  })
+
+  it('has copy for the prepare action in both languages', () => {
+    for (const key of ['channelPrepare', 'channelPreparing', 'channelPreparedVerified', 'channelPreparedStored', 'channelPrepareFailed'] as const) {
+      expect(en[key]).toBeTruthy()
+      expect(zh[key]).toBeTruthy()
+    }
   })
 })
