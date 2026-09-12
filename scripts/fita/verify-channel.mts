@@ -14,7 +14,7 @@
  */
 
 import { spawnSync } from 'node:child_process'
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { basename, dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -106,8 +106,18 @@ function main(argv: readonly string[]): void {
     problems.push(`${channel.feed}-mac.yml is absent, so this channel has no updater feed`)
   } else {
     const feed = readFileSync(feedFile, 'utf8')
+    // Two layers: the zip is the payload an Electron app updates itself from on macOS,
+    // the DMG is the full install. The feed must carry both, and point at the payload.
+    const zip = readdirSync(outputDir).find(name => name.endsWith('.zip'))
+    const listed = [...feed.matchAll(/^\s*-\s*url:\s*(.+)$/gmu)].map(match => match[1]?.trim() ?? '')
     const path = feedValue(feed, 'path')
-    if (path !== basename(dmg)) problems.push(`feed path is ${path ?? 'absent'}, expected ${basename(dmg)}`)
+    if (zip === undefined) {
+      problems.push('no zip next to the DMG, so this channel has no in-app update payload')
+    } else {
+      if (path !== basename(zip)) problems.push(`feed path is ${path ?? 'absent'}, expected ${basename(zip)}`)
+      if (!listed.includes(basename(zip))) problems.push(`feed does not list ${basename(zip)}`)
+      if (!listed.includes(basename(dmg))) problems.push(`feed does not list ${basename(dmg)}`)
+    }
     const feedVersion = feedValue(feed, 'version')
     if (feedVersion !== version) problems.push(`feed version is ${feedVersion ?? 'absent'}, expected ${version}`)
   }
