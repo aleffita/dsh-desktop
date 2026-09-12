@@ -13,8 +13,8 @@ a channel name.
 | Dev | `dev` | `dev-v*` | `dev-mac.yml` | `DSH Fita Dev` | `#FF4D9D` pink |
 | Pull request | `PR-<n>-<slug>` | `pr-<n>-v*` | `pr-mac.yml` | `DSH Fita PR` | `#FF7A59` orange-pink |
 
-Each entry carries: `name`, `slug`, `lane`, `tag`, `feed`, `appName`, `bundleId`,
-`accent`, `onAccent`, `prerelease`, `installs`, `description`. A channel is added by
+Each entry carries: `name`, `slug`, `lane`, `tag`, `feed`, `appName`, `artifactSlug`,
+`bundleId`, `accent`, `onAccent`, `prerelease`, `installs`, `description`. A channel is added by
 adding an entry — the release workflow, the header and the installer read the same file.
 
 ## Why a distinct `bundleId` and `appName` per channel
@@ -51,6 +51,24 @@ Everything above is data: `header` in `fita/channels.yml` holds the wordmark, th
 label, the wordmark colours and the subtitle typography. The renderer resolves
 `color: channel` to the active channel's `accent`.
 
+## Channel manifest
+
+Every channel build writes `fita-channel.json` next to its artifacts. It is the only
+description of what was actually built, and consumers read it instead of re-deriving names:
+
+| field | example | read by |
+| --- | --- | --- |
+| `channel`, `name`, `lane` | `dev`, `Dev`, `dev` | installer, e2e, workflow |
+| `product`, `version` | `DSH Fita`, `2.0.9` | workflow, installer |
+| `appName`, `artifactSlug`, `bundleId` | `DSH Fita Dev`, `DSH-Fita-Dev`, `ai.deepseek.dsh.desktop.dev` | installer, e2e |
+| `feed`, `feedFile` | `dev`, `dev-mac.yml` | workflow, updater |
+| `accent`, `prerelease` | `#FF4D9D`, `true` | header, workflow |
+| `dmg`, `dmgSha256` | `DSH-Fita-Dev-2.0.9-universal.dmg`, `…` | installer, e2e |
+| `electronBuilderFlags` | the stamped flags | whoever debugs a build |
+
+The channel verifier runs *before* the manifest is written, so a build that cannot prove
+its identity produces neither: no artifacts, no manifest, nothing to ship.
+
 ## Consumption map
 
 | consumer | reads | uses |
@@ -58,5 +76,35 @@ label, the wordmark colours and the subtitle typography. The renderer resolves
 | release workflow | `channels.yml` | tag pattern, feed name, app name, bundle id, prerelease flag |
 | header renderer | `channels.yml` | chip label, accent, subtitle typography and slug |
 | installer (`fita`) | `channels.yml` | install path, app name, which release to fetch |
-| updater | baked `app-update.yml` | `channel: <feed>`, owner/repo of our fork |
+| packaging (`fita:package`) | `channels.yml` + `fita-channel.json` | product name, bundle id, updater feed, manifest provenance |
+| updater | baked `app-update.yml` + `channels.yml` | `channel: <feed>`, owner/repo of our fork (see *Updater vocabulary*) |
 | marketplace source | `channels.yml` | which builds and plugins this source offers |
+
+## Updater vocabulary: the shipped app knows two channels, we ship four
+
+Measured on the vendored runtime, not assumed:
+
+- `dsh-plugin-desktop/src/update-checker.ts:19` — `export type DesktopReleaseChannel = 'stable' | 'beta'`.
+  Our lanes `dev` and `pr` are outside that union, so the app's own update path cannot
+  name them.
+- `dsh-plugin-desktop/src/update-download.ts:183` — the artifact it offers is
+  `channel === 'beta' ? 'DSH-Desktop-Beta' : 'DSH-Desktop'`. A `dev` build that used the
+  built-in path would present itself as `DSH-Desktop`, i.e. as stable.
+- `dsh-plugin-desktop/src/update-download.ts:260` — `validatedVersion` enforces
+  channel/prerelease agreement, so stable and beta cannot borrow each other's versions.
+
+Consequences for the program, in order:
+
+1. The channel-aware updater is ours to build; it must key on `channels.yml` and the
+   installed `fita-channel.json`, never on the app's two-value union.
+2. `app-update.yml` is still written per channel by `electron-builder` and is correct
+   (`channel: dev`, owner/repo of our fork) — that is the descriptor our updater reads.
+   Verified for the dev build: `provider: github`, `owner: aleffita`, `repo: dsh-desktop`,
+   `channel: dev`.
+3. `updaterCacheDirName` is derived from the package name, not the product name
+   (`app-builder-lib/out/appInfo.js:126` → `dsh-plugin-desktop-updater`), so **every**
+   channel shares one cache directory. Nothing consumes it today — no file under
+   `dsh-plugin-desktop/src` imports `electron-updater`, `autoUpdater` or `app-update.yml`;
+   the app reaches its own version endpoint instead — so this is latent, not broken. Our
+   updater must scope its download/cache paths by channel rather than inherit the shared
+   name.

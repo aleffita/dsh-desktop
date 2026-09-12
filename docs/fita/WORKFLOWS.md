@@ -20,9 +20,11 @@ this directory honest.
   rewriting either.
 - A tag whose version carries a pre-release suffix produces a GitHub pre-release and the
   channel's `prerelease` flag is taken from the registry.
-- The shippable asset name is whatever the updater feed records in its `path:` entry, so
-  the DMG, its blockmap and the feed always ship under one name. Renaming an asset any
-  other way silently breaks auto-update.
+- The shippable asset name comes from the registry: `artifactSlug` feeds
+  `--config.artifactName`, so the DMG file, the blockmap and the feed's `path:` are the
+  same string produced in one place. electron-builder otherwise sanitises spaces in the
+  feed while the file on disk keeps them, and the updater then asks for an asset that was
+  never uploaded — the channel verifier fails the build when that drifts.
 - Nothing is published to npm. Installable builds are GitHub release assets; plugin
   packages go to GitHub Packages; CI artifacts exist for inspection only.
 
@@ -42,3 +44,41 @@ guessing whether the fork is current.
 3. `yarn fita list` sanity when the change touches `fita/channels.yml`.
 4. The evidence recorded in the commit or the release notes — a build that cannot say what
    it proved is not a release candidate.
+
+## A gate failure that was not ours, and how it was fixed
+
+`yarn check` once ended with exactly one failure:
+
+```
+FAIL tests/windows-nsis-ab.spec.ts > Windows NSIS A/B packaging
+     > really reverses only the extract template from below the outer worktree
+```
+
+Reproduced unchanged on a pristine `dev`, and the spec, the script and
+`patches/app-builder-lib@26.15.7.patch` are all identical to `master` — the defect was
+upstream's, in the Windows-only NSIS A/B lab. Root cause, isolated on this machine's
+`git 2.50.1`:
+
+```sh
+git apply --reverse --unsafe-paths --directory=. \
+  --include=templates/nsis/include/extractAppPackage.nsh patches/app-builder-lib@26.15.7.patch
+```
+
+`--include` is matched against the path *after* the `--directory` prefix is applied, so
+`templates/…` never matches `./templates/…`: git selected no file, changed nothing, and still
+exited 0. Measured:
+
+| invocation | exit | template restored |
+| --- | --- | --- |
+| `--directory=. --include=templates/…` | 0 | no |
+| no `--directory` | 0 | yes |
+| `--directory=. --include=./templates/…` | 0 | yes |
+
+Patch paths are already package-relative and `-C <isolated copy>` anchors them, so
+`--directory=.` was never needed. It is gone from the production script and from the spec,
+and the spec now asserts that no `--directory` argument is present — that is the property
+that keeps the reversal real. The guard that turned the silent no-op into a hard failure
+stays where it was.
+
+Lane record: fixed on `dev` in `9b0f37655a`, cherry-picked to `beta` as `c97e8e0cd3`. The
+generalizable fix leaves the fork from `beta` when we decide to, like any other.
