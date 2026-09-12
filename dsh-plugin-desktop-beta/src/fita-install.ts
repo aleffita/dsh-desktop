@@ -73,50 +73,6 @@ export function planFitaHandover(request: FitaHandoverRequest): FitaHandoverPlan
   return { status: 'install', dmgPath: request.preparedPath, destination: request.destination }
 }
 
-/**
- * Flag that relaunches this same app as the detached installing step.
- *
- * The installing step is this app again, not a second implementation: it is spawned
- * detached with these arguments, waits for the parent to exit, installs and relaunches.
- * `DESKTOP_INSTALLER_QUIT_FLAG` is the same idea for a launcher-driven installer.
- */
-export const FITA_HANDOVER_DMG_FLAG = '--dsh-fita-handover-dmg'
-/** Flag carrying the bundle a hand-over may replace. */
-export const FITA_HANDOVER_DESTINATION_FLAG = '--dsh-fita-handover-destination'
-
-/** What a relaunched hand-over process was asked to do. */
-export interface FitaHandoverArguments {
-  /** Verified DMG to install from. */
-  readonly dmgPath: string
-  /** Bundle to replace, resolved by the caller from the registry. */
-  readonly destination: string
-}
-
-/**
- * Read a hand-over request out of a process's arguments.
- *
- * Both values are required, and an empty one is treated as absent rather than as a
- * path: a hand-over with no destination could otherwise replace something arbitrary.
- * @param argv - full process argument list.
- * @returns the request, or undefined when this is not a hand-over process.
- */
-export function parseFitaHandoverArguments(argv: readonly string[]): FitaHandoverArguments | undefined {
-  const valueOf = (flag: string): string | undefined => {
-    const inline = argv.find(argument => argument.startsWith(`${flag}=`))
-    if (inline !== undefined) {
-      const value = inline.slice(flag.length + 1)
-      return value === '' ? undefined : value
-    }
-    const index = argv.indexOf(flag)
-    const next = index === -1 ? undefined : argv[index + 1]
-    return next === undefined || next.startsWith('--') || next === '' ? undefined : next
-  }
-  const dmgPath = valueOf(FITA_HANDOVER_DMG_FLAG)
-  const destination = valueOf(FITA_HANDOVER_DESTINATION_FLAG)
-  if (dmgPath === undefined || destination === undefined) return undefined
-  return { dmgPath, destination }
-}
-
 /** Reasons an install can fail, named rather than collapsed. */
 export type FitaInstallFailure = 'mount' | 'no-app' | 'copy' | 'quarantine' | 'io'
 

@@ -30,6 +30,64 @@ export type FitaHandoverRequest =
     readonly destination: string
   }
 
+/**
+ * Flags that relaunch this app as the detached hand-over process.
+ *
+ * The installing step is this app again, not a second implementation: it is spawned with
+ * these arguments, waits for the parent to exit, applies the layer and relaunches. The
+ * layer is named explicitly so the process cannot pick the wrong one from the paths it
+ * happens to have.
+ */
+export const FITA_HANDOVER_LAYER_FLAG = '--dsh-fita-handover-layer'
+/** Flag carrying the verified zip of a payload hand-over. */
+export const FITA_HANDOVER_ZIP_FLAG = '--dsh-fita-handover-zip'
+/** Flag carrying the bundle a payload hand-over swaps code in. */
+export const FITA_HANDOVER_APP_FLAG = '--dsh-fita-handover-app'
+/** Flag carrying the directory a payload hand-over extracts into. */
+export const FITA_HANDOVER_STAGING_FLAG = '--dsh-fita-handover-staging'
+/** Flag carrying the verified DMG of a full hand-over. */
+export const FITA_HANDOVER_DMG_FLAG = '--dsh-fita-handover-dmg'
+/** Flag carrying the bundle a full hand-over replaces. */
+export const FITA_HANDOVER_DESTINATION_FLAG = '--dsh-fita-handover-destination'
+
+/** One argument value, in either `--flag=value` or `--flag value` form. */
+function argumentValue(argv: readonly string[], flag: string): string | undefined {
+  const inline = argv.find(argument => argument.startsWith(`${flag}=`))
+  if (inline !== undefined) {
+    const value = inline.slice(flag.length + 1)
+    return value === '' ? undefined : value
+  }
+  const index = argv.indexOf(flag)
+  const next = index === -1 ? undefined : argv[index + 1]
+  return next === undefined || next.startsWith('--') || next === '' ? undefined : next
+}
+
+/**
+ * Read a hand-over request out of a process's arguments.
+ *
+ * Every path the chosen layer needs is required, and an empty value counts as absent: a
+ * hand-over with no destination could otherwise replace something arbitrary.
+ * @param argv - full process argument list.
+ * @returns the request, or undefined when this is not a hand-over process.
+ */
+export function parseFitaHandoverArguments(argv: readonly string[]): FitaHandoverRequest | undefined {
+  const layer = argumentValue(argv, FITA_HANDOVER_LAYER_FLAG)
+  if (layer === 'payload') {
+    const zipPath = argumentValue(argv, FITA_HANDOVER_ZIP_FLAG)
+    const appPath = argumentValue(argv, FITA_HANDOVER_APP_FLAG)
+    const staging = argumentValue(argv, FITA_HANDOVER_STAGING_FLAG)
+    if (zipPath === undefined || appPath === undefined || staging === undefined) return undefined
+    return { layer: 'payload', zipPath, appPath, staging }
+  }
+  if (layer === 'full') {
+    const dmgPath = argumentValue(argv, FITA_HANDOVER_DMG_FLAG)
+    const destination = argumentValue(argv, FITA_HANDOVER_DESTINATION_FLAG)
+    if (dmgPath === undefined || destination === undefined) return undefined
+    return { layer: 'full', dmgPath, destination }
+  }
+  return undefined
+}
+
 /** Why a hand-over could not finish. */
 export type FitaHandoverFailure = 'mount' | 'no-app' | 'copy' | 'quarantine' | 'io' | 'extract' | 'missing-payload' | 'relaunch'
 
