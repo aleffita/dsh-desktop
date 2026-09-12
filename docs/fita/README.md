@@ -25,7 +25,7 @@ is the only thing that may ever leave the fork, one isolated commit set at a tim
 | Channels and branding | channel registry, colour-coded `FITA` chip, version subtitle, `DSH Fita` product name | dev | landed |
 | Per-channel packaging | stamp `productName`, `bundleId` and updater feed per channel so installs stand side by side | dev | landed |
 | Install manager | `yarn fita install/use/status`, verified downloads, no manual copying | dev | landed |
-| Update channels UI | in-app updater: check, choose channel, download, apply, report state | dev, later beta | next |
+| Update channels UI | in-app updater: check, choose channel, download, apply, report state | dev, later beta | in progress |
 | GitHub Packages | publish our scoped plugin packages to our registry | dev | queued |
 | Marketplace source | our fork as a marketplace source, with an `alefita's choices` bundle YAML consumed by onboarding and plugin settings | dev | queued |
 | Planning plugin | kanban board in the Harness itself: backlog, epics/projects/tasks hierarchy, tags, provenance, related sessions, colours, agent skills; local storage first, git-authored, read-only without git | dev | queued |
@@ -34,6 +34,13 @@ is the only thing that may ever leave the fork, one isolated commit set at a tim
 | Remote access as forward | remote clients see the same board and sessions | dev | after 1–5 |
 | Sync | pluggable sync, Google Drive OAuth first, provenance preserved | dev | after 1–5 |
 | Upstream reconciliation | scheduled merge of upstream `master` into `dev`, logged | dev | recipe documented |
+
+The update UI slice is in progress on `feat/update-channel-ui` (PR #3): the build knows its
+channel, the renderer reads the catalogue and checks one channel with three honest states, the
+titlebar prepares the offered build, and a prepared cache is proven installable
+(`yarn fita:verify-prepared`). What remains is the hand-over — tell the user the build is ready
+and quit so the install manager can replace the bundle, since the app cannot do that to itself —
+and choosing another channel to install from the same popover.
 
 "Landed" means the slice's evidence is in `docs/fita/INSTALLS.md` and `CHANNELS.md`, its e2e
 runs locally, and it entered `dev` through a pull request. "Next" is the only slice that may
