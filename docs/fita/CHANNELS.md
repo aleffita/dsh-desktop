@@ -64,6 +64,7 @@ description of what was actually built, and consumers read it instead of re-deri
 | `feed`, `feedFile` | `dev`, `dev-mac.yml` | workflow, updater |
 | `accent`, `prerelease` | `#FF4D9D`, `true` | header, workflow |
 | `dmg`, `dmgSha256` | `DSH-Fita-Dev-2.0.9-universal.dmg`, `…` | installer, e2e |
+| `zip`, `zipSha256` | `DSH-Fita-Dev-2.0.9-universal.zip`, `…` | the in-app update payload layer |
 | `electronBuilderFlags` | the stamped flags | whoever debugs a build |
 
 The channel verifier runs *before* the manifest is written, so a build that cannot prove
