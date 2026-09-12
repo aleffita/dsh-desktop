@@ -1,0 +1,78 @@
+# Fita Harness channel registry.
+#
+# One entry per installable lane. This file is the single contract shared by the
+# app header, the release workflow, the updater feed and the local installer, so
+# a new channel is declared here once and picked up everywhere. Adding a channel
+# must not require touching code.
+#
+# lane      git branch that produces the build (see docs/fita/GITFLOW.md)
+# tag       tag pattern the release workflow accepts for this channel
+# feed      electron-updater channel; the release carries `<feed>-mac.yml`
+# installs  where `fita install <slug>` puts the .app (no sudo required)
+
+version: 1
+repository: aleffita/dsh-desktop
+product: DSH Fita
+header:
+  wordmark: HARNESS
+  chip: FITA
+  wordmarkBackground: '#FFFFFF'
+  wordmarkForeground: '#111111'
+  subtitle:
+    # Thin serif version slug, left-aligned under the wordmark, starting at the
+    # "d" of the wordmark. Accent colour follows the channel.
+    font: serif
+    weight: 300
+    color: channel
+channels:
+  - name: Main
+    slug: main
+    lane: master
+    tag: 'v*'
+    feed: latest
+    appName: DSH Fita
+    bundleId: ai.deepseek.dsh.desktop
+    accent: '#1F6FEB'
+    onAccent: '#FFFFFF'
+    prerelease: false
+    installs: '~/Applications/DSH Fita.app'
+    description: Upstream mirror. What ships here is what upstream ships.
+
+  - name: Beta
+    slug: beta
+    lane: beta
+    tag: 'beta-v*'
+    feed: beta
+    appName: DSH Fita Beta
+    bundleId: ai.deepseek.dsh.desktop.beta
+    accent: '#E3B341'
+    onAccent: '#111111'
+    prerelease: true
+    installs: '~/Applications/DSH Fita Beta.app'
+    description: Upstream-bound work. Fixes here are meant to be extracted to upstream.
+
+  - name: Dev
+    slug: dev
+    lane: dev
+    tag: 'dev-v*'
+    feed: dev
+    appName: DSH Fita Dev
+    bundleId: ai.deepseek.dsh.desktop.dev
+    accent: '#FF4D9D'
+    onAccent: '#FFFFFF'
+    prerelease: true
+    installs: '~/Applications/DSH Fita Dev.app'
+    description: Our mainline. Diverges by design; product opinion lives here.
+
+  - name: Pull request
+    slug: pr
+    lane: 'PR-<number>-<slug>'
+    tag: 'pr-<number>-v*'
+    feed: pr
+    appName: DSH Fita PR
+    bundleId: ai.deepseek.dsh.desktop.pr
+    accent: '#FF7A59'
+    onAccent: '#FFFFFF'
+    prerelease: true
+    installs: '~/Applications/DSH Fita PR.app'
+    description: One installable build per review branch, colour-matched to the PR lane.

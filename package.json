@@ -616,6 +616,7 @@
     "dist:win:beta": "yarn aa:prepare-release && yarn workspace dsh-community-market build && yarn workspace dsh-plugin-desktop-beta dist:win",
     "dist:win-portable:beta": "yarn aa:prepare-release && yarn workspace dsh-community-market build && yarn workspace dsh-plugin-desktop-beta dist:win-portable",
     "aa:check": "node scripts/prepare-agents-anywhere-release.mjs --check",
-    "aa:prepare-release": "node scripts/prepare-agents-anywhere-release.mjs"
+    "aa:prepare-release": "node scripts/prepare-agents-anywhere-release.mjs",
+    "fita": "node scripts/fita/fita.mjs"
   }
 }
