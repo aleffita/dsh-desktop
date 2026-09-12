@@ -121,10 +121,20 @@ The app follows the same contract as the installer, one step at a time:
    `<userData>/updates/channels/<slug>/` and compares its SHA-256 with the release's
    `SHA256SUMS.txt`. The answer says what was proven: `verified`, or `stored` when the release
    published no checksums.
-4. **Apply — still to come.** The app cannot replace itself while it runs. The intended path is
-   convergence with the installer rather than a second install mechanism: the app's cache
-   directory becomes a directory `fita install --from-dir` already understands, because the app
-   can write the `fita-channel.json` the installer reads from facts it has just verified
-   (channel, version, DMG name, `dmgSha256`). Then `yarn fita install <slug> --from-dir
-   <userData>/updates/channels/<slug>` installs side by side with no new flags, and the app only
-   has to hand over the quit/relaunch it already owns.
+4. **Apply.** Convergence with the installer rather than a second install mechanism: the app's
+   cache directory *is* a directory `fita install --from-dir` understands, because the app writes
+   the `fita-channel.json` the installer reads from facts it has just verified (channel, version,
+   DMG name, `dmgSha256`). Proven end to end and offline:
+
+   ```sh
+   yarn fita:verify-prepared --channel=dev
+   fita-prepared: ok — a cache prepared like the app's installed DSH Fita Dev 2.0.9 side by side
+   ```
+
+   That script builds the cache directory exactly as the app does — the app's own
+   `fitaChannelManifest`, with the channel's real DMG hard-linked rather than copied — runs
+   `fita install --from-dir` against it into a scratch install root, and checks the installed
+   app's `CFBundleIdentifier` and version.
+
+   What the app still owes is the hand-over: telling the user the build is ready and quitting so
+   the install manager can replace the bundle, which is the only part it cannot do to itself.
