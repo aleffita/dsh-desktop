@@ -10,6 +10,7 @@ narrow path back upstream.
 | `CHANNELS.md` | the channel registry, the header identity, how each consumer reads it |
 | `INSTALLS.md` | several builds on one machine, the install manager, CI/CD integration |
 | `WORKFLOWS.md` | the pipelines, release rules, the scheduled upstream reconciliation |
+| `PACKAGES.md` | what we publish, to which registry, and why the workspace names stay |
 
 `fita/channels.yml` is the contract all four describe. `scripts/fita/fita.mjs` is the
 install manager. Planning lives in this fork's GitHub Projects: one item per task, each
