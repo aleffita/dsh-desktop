@@ -176,3 +176,43 @@ logged — the same fail-closed shape as the interactive update route.
 Downloads land under `<userData>/updates/channels/<slug>/` — one directory per channel.
 electron-builder's `updaterCacheDirName` derives from the package name, so every channel would
 otherwise share one path and two channels updating at once would fight over it.
+
+## Two update layers, and why the feed alone decides
+
+Not every update is a new DMG. An Electron app has two payloads: the code payload
+(`Contents/Resources/app.asar`, plus `app.asar.unpacked` for native modules) and the full
+bundle. Replacing the code payload is cheap and needs no install; replacing the Electron
+runtime, the native modules or the resources needs the whole bundle. Measured on the dev build:
+
+```
+app.asar              173 MB
+app.asar.unpacked      54 MB   (node-pty, sharp, ripgrep, fs-ext, koffi)
+DMG                   278 MB   (the compressed bundle)
+```
+
+What our packaging publishes today is only the second layer:
+
+```yaml
+# dev-mac.yml
+version: 2.0.9
+files:
+  - url: DSH-Fita-Dev-2.0.9-universal.dmg
+    sha512: LltbtgDwvLsh+uhwJcgz32aqxKY9tX7qq7T5KYzL6VcBbUJ6kej362KnWQq03FU3UAy8Z3vxjUAe9laKAnpP4w==
+    size: 278583798
+path: DSH-Fita-Dev-2.0.9-universal.dmg
+```
+
+So a channel has **no in-app update artifact at all**: the feed names one file, and it is the
+DMG. electron-updater's macOS path expects a `zip` target for that job — the DMG is the manual
+install — which means per-channel packaging has to emit both targets before either layer can be
+used in-app:
+
+| layer | artifact | touches | used when |
+| --- | --- | --- | --- |
+| code payload | `zip` (plus its blockmap, so a delta can be fetched) | `app.asar`, and anything that changed inside it | the Electron runtime and native modules are unchanged |
+| full bundle | `dmg` (already built) | everything, including natives and resources | natives, resources or the runtime changed; or no usable delta base |
+
+Both layers share the same per-channel verification (sha512 from the channel's feed), the same
+per-channel cache, and the same hand-over: nothing is swapped while the app runs. The layer
+decision belongs to the feed, not to a heuristic in the app — if the feed's file list carries a
+payload we can apply, that is the update; if it only carries the DMG, the DMG is the update.
