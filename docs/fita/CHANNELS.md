@@ -108,3 +108,35 @@ Consequences for the program, in order:
    the app reaches its own version endpoint instead — so this is latent, not broken. Our
    updater must scope its download/cache paths by channel rather than inherit the shared
    name.
+
+## How a running build knows its channel
+
+Two halves, both generated from the registry so a channel is declared once:
+
+**The stamp.** `fita:package` passes `--config.extraMetadata.fitaProduct|fitaChannel|fitaFeed`,
+so the packaged `package.json` carries the channel. Verified on the dev build by reading
+`Contents/Resources/app.asar/package.json` back out of the DMG:
+
+```
+name: dsh-plugin-desktop | version: 2.0.9
+fitaProduct: DSH Fita | fitaChannel: dev | fitaFeed: dev
+```
+
+That is the app's own answer to "which channel am I", read through the same
+`new URL('../package.json', import.meta.url)` the version already comes from. There is no
+second source and no guessing: a build without the stamp — upstream's, or one made before the
+registry existed — is reported as *unknown*, and the app must not offer it another channel's
+release.
+
+**The catalogue.** The packaged app cannot read `fita/channels.yml`, so
+`scripts/fita/channels-module.mts` freezes it into `src/fita-channels.generated.ts` in **both**
+editions (`yarn fita:channels`), and `yarn check:fita-channels` — part of `check:layout` —
+fails when the committed module and the YAML disagree. `src/fita-channel.ts` is the only
+reader: `fitaChannel(slug)` looks a channel up, `readFitaBuildIdentity(manifest)` reads the
+stamp, `runningFitaChannel(manifest)` resolves the two together and returns undefined rather
+than a wrong channel. `tests/fita-channel.spec.ts` holds the invariants: unique
+slug/`bundleId`/`appName`/`artifactSlug`/`installs`, well-formed accents and install paths, and
+the refusal to resolve an undeclared slug.
+
+So adding a channel stays a one-file change: declare it in `fita/channels.yml`, run
+`yarn fita:channels`, and both the pipeline and the app see it.
