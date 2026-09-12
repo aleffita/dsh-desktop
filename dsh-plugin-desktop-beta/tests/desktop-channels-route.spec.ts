@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { fitaChannel } from '../src/fita-channel.ts'
 import {
   handleDesktopChannelCheckRequest,
+  handleDesktopChannelDownloadRequest,
   handleDesktopChannelsRequest,
 } from '../src/desktop-settings-route.ts'
 import type { FitaChannelCheck } from '../src/fita-release-source.ts'
@@ -185,5 +186,86 @@ describe('channel check route', () => {
     )
     expect(status()).toBe(500)
     expect(reportError).toHaveBeenCalledWith('check a channel', expect.any(Error))
+  })
+})
+
+describe('channel download route', () => {
+  it('prepares the channel the caller named, and reports where the build is', async () => {
+    const prepare = vi.fn(async () => ({
+      status: 'verified' as const,
+      version: '2.0.10-rc.1',
+      name: 'DSH-Fita-Dev-2.0.10-rc.1-universal.dmg',
+      path: '/cache/dev/DSH-Fita-Dev-2.0.10-rc.1-universal.dmg',
+    }))
+    const { res, body, status } = response()
+    await handleDesktopChannelDownloadRequest(postRequest({ channel: 'dev' }), res, origin, prepare)
+    expect(status()).toBe(200)
+    expect(body()).toMatchObject({ status: 'verified', version: '2.0.10-rc.1' })
+    expect(prepare).toHaveBeenCalledWith(expect.objectContaining({ slug: 'dev' }))
+  })
+
+  it('passes a named preparation failure through', async () => {
+    const { res, body } = response()
+    await handleDesktopChannelDownloadRequest(
+      postRequest({ channel: 'dev' }),
+      res,
+      origin,
+      async () => ({ status: 'failed', channel: 'dev', reason: 'checksum-mismatch' }),
+    )
+    expect(body()).toEqual({ status: 'failed', channel: 'dev', reason: 'checksum-mismatch' })
+  })
+
+  it('refuses an undeclared channel without preparing anything', async () => {
+    const prepare = vi.fn()
+    const { res, body, status } = response()
+    await handleDesktopChannelDownloadRequest(postRequest({ channel: 'stable' }), res, origin, prepare)
+    expect(status()).toBe(200)
+    expect(body()).toEqual({ status: 'failed', channel: 'stable', reason: 'unknown-channel' })
+    expect(prepare).not.toHaveBeenCalled()
+  })
+
+  it('refuses a malformed body, another method, and another origin', async () => {
+    const prepare = vi.fn()
+    for (const payload of [{}, { channel: 7 }]) {
+      const { res, status } = response()
+      await handleDesktopChannelDownloadRequest(postRequest(payload), res, origin, prepare)
+      expect(status()).toBe(400)
+    }
+    const wrongMethod = response()
+    await handleDesktopChannelDownloadRequest(
+      { method: 'GET', headers: {}, socket: {} } as unknown as IncomingMessage,
+      wrongMethod.res,
+      origin,
+      prepare,
+    )
+    expect(wrongMethod.status()).toBe(405)
+    const crossOrigin = response()
+    await handleDesktopChannelDownloadRequest(
+      {
+        method: 'POST',
+        headers: { host: '127.0.0.1:43120', origin: 'https://example.test', 'content-type': 'application/json' },
+        socket: { remoteAddress: '127.0.0.1' },
+        async * [Symbol.asyncIterator]() { yield Buffer.from('{"channel":"dev"}') },
+      } as unknown as IncomingMessage,
+      crossOrigin.res,
+      origin,
+      prepare,
+    )
+    expect(crossOrigin.status()).toBe(403)
+    expect(prepare).not.toHaveBeenCalled()
+  })
+
+  it('reports an unexpected preparation failure as a server error', async () => {
+    const reportError = vi.fn()
+    const { res, status } = response()
+    await handleDesktopChannelDownloadRequest(
+      postRequest({ channel: 'dev' }),
+      res,
+      origin,
+      async () => { throw new Error('boom') },
+      reportError,
+    )
+    expect(status()).toBe(500)
+    expect(reportError).toHaveBeenCalledWith('prepare a channel build', expect.any(Error))
   })
 })

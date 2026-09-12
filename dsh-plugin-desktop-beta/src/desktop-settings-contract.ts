@@ -43,6 +43,9 @@ export const DESKTOP_CHANNELS_PATH = '/api/desktop/updates/channels'
 /** Ask one channel whether it offers a newer build. */
 export const DESKTOP_CHANNEL_CHECK_PATH = '/api/desktop/updates/channel-check'
 
+/** Download and verify one channel's build into its own cache directory. */
+export const DESKTOP_CHANNEL_DOWNLOAD_PATH = '/api/desktop/updates/channel-download'
+
 /** Export one local diagnostic archive through the launcher-owned flow. */
 export const DESKTOP_DIAGNOSTICS_EXPORT_PATH = '/api/desktop/diagnostics/export'
 
@@ -259,6 +262,54 @@ export type DesktopChannelCheckResponse =
 
 /** Reasons a channel check can fail, as the renderer may see them. */
 export type DesktopChannelCheckOutcomeFailure = 'request' | 'response' | 'malformed' | 'unknown-channel'
+
+/** Exact body accepted by the channel download endpoint. */
+export interface DesktopChannelDownloadRequest {
+  /** Registry slug whose build should be prepared. */
+  readonly channel: string
+}
+
+/** Outcome of preparing one channel's build. */
+export type DesktopChannelDownloadResponse =
+  | {
+    readonly status: 'verified'
+    /** Version that was downloaded. */
+    readonly version: string
+    /** Published file name. */
+    readonly name: string
+    /** Absolute path of the verified file. */
+    readonly path: string
+  }
+  | {
+    readonly status: 'stored'
+    /** Version that was downloaded. */
+    readonly version: string
+    /** Published file name. */
+    readonly name: string
+    /** Absolute path of the file; the release published no checksums. */
+    readonly path: string
+  }
+  | {
+    readonly status: 'failed'
+    /** Channel that was asked. */
+    readonly channel: string
+    /** Which step failed. */
+    readonly reason: DesktopChannelDownloadOutcomeFailure
+  }
+
+/** Reasons a channel download can fail, as the renderer may see them. */
+export type DesktopChannelDownloadOutcomeFailure =
+  | 'unknown-channel'
+  | 'no-release'
+  | 'no-artifact'
+  | 'request'
+  | 'response'
+  | 'malformed'
+  | 'download'
+  | 'checksum-missing'
+  | 'checksum-mismatch'
+  | 'too-large'
+  | 'io'
 
 /** Exact empty body accepted by the diagnostic-export endpoint. */
 export type DesktopDiagnosticsExportRequest = Readonly<Record<string, never>>

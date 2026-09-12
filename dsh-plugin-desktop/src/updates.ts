@@ -4,12 +4,22 @@ import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import type {} from '@deepseek-ai/dsh-client-connection'
 import type {} from '@deepseek-ai/dsh-host-webserver'
-import { DESKTOP_CHANNELS_PATH, DESKTOP_CHANNEL_CHECK_PATH, DESKTOP_UPDATE_CHECK_PATH } from './desktop-settings-contract.ts'
+import { dirname, join } from 'node:path'
+import {
+  DESKTOP_CHANNELS_PATH,
+  DESKTOP_CHANNEL_CHECK_PATH,
+  DESKTOP_CHANNEL_DOWNLOAD_PATH,
+  DESKTOP_UPDATE_CHECK_PATH,
+} from './desktop-settings-contract.ts'
+import type { DesktopChannelDownloadResponse } from './desktop-settings-contract.ts'
 import {
   handleDesktopChannelCheckRequest,
+  handleDesktopChannelDownloadRequest,
   handleDesktopChannelsRequest,
   handleDesktopUpdateCheckRequest,
 } from './desktop-settings-route.ts'
+import type { FitaChannel } from './fita-channel.ts'
+import { downloadFitaArtifact } from './fita-download.ts'
 import { checkFitaChannelReleases } from './fita-release-source.ts'
 import type {} from './runtime.ts'
 import { startDesktopUpdateLifecycle } from './update-lifecycle.ts'
@@ -122,8 +132,55 @@ export function apply(ctx: Context, config: Config): void {
         )
       },
     })
+    // Each channel gets its own cache directory: electron-builder's shared
+    // `updaterCacheDirName` would have every channel writing to one path.
+    const cacheRoot = join(dirname(ctx.desktopRuntime.updates.statePath), 'channels')
+    const prepareChannel = async (channel: FitaChannel): Promise<DesktopChannelDownloadResponse> => {
+      const request = ctx.desktopRuntime.updates.request
+      const check = await checkFitaChannelReleases({
+        channel,
+        currentVersion: ctx.desktopRuntime.updates.currentVersion,
+        request,
+      })
+      if (check.status === 'failed') return { status: 'failed', channel: channel.slug, reason: check.reason }
+      if (check.status === 'none' || !check.newer) return { status: 'failed', channel: channel.slug, reason: 'no-release' }
+      if (check.dmg === undefined) return { status: 'failed', channel: channel.slug, reason: 'no-artifact' }
+      const result = await downloadFitaArtifact({
+        channel,
+        cacheRoot,
+        artifact: { name: check.dmg.name, url: check.dmg.browser_download_url },
+        sums: check.sums === undefined ? null : { name: check.sums.name, url: check.sums.browser_download_url },
+        request,
+      })
+      if (result.status === 'failed') return { status: 'failed', channel: channel.slug, reason: result.reason }
+      return { status: result.status, version: check.version, name: result.name, path: result.path }
+    }
+    const unregisterChannelDownload = ctx.webServer.register({
+      kind: 'exact',
+      path: DESKTOP_CHANNEL_DOWNLOAD_PATH,
+      handler: (req, res) => {
+        const rejection = ctx.connection.requestRejection(req)
+        if (rejection !== undefined) {
+          res.writeHead(rejection)
+          res.end(rejection === 401 ? 'unauthorized' : 'forbidden')
+          return
+        }
+        return handleDesktopChannelDownloadRequest(
+          req,
+          res,
+          rendererOrigin,
+          prepareChannel,
+          (operation, cause) => {
+            ctx.logger.error(
+              `dsh-plugin-desktop: failed to ${operation}: ${cause instanceof Error ? cause.message : String(cause)}`,
+            )
+          },
+        )
+      },
+    })
     return async () => {
       unregister()
+      unregisterChannelDownload()
       unregisterChannels()
       unregisterChannelCheck()
       await lifecycle.dispose()

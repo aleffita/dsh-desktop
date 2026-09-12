@@ -166,8 +166,13 @@ and same-origin rules as the rest of the settings API:
 | --- | --- | --- |
 | `GET /api/desktop/updates/channels` | none | `{ current, channels[] }` — the catalogue in registry order, each entry marked with `current: true` for the running build; `current` is null when this build carries no stamp |
 | `POST /api/desktop/updates/channel-check` | `{ "channel": "<slug>" }` | the three states above, projected into renderer-safe shapes: artifact names and URLs, no host objects |
+| `POST /api/desktop/updates/channel-download` | `{ "channel": "<slug>" }` | downloads that channel's build and verifies it: `verified` (digest compared with the release's `SHA256SUMS.txt`), `stored` (the release published no checksums, so nothing more may be claimed), or `failed` with a named reason. The renderer names a channel, never a URL or a version. |
 
 An undeclared slug is *answered*, not rejected: `{ "status": "failed", "reason":
 "unknown-channel" }` lets the UI say what happened instead of showing a generic error, and the
 Host never has to guess what the caller meant. A check that throws is a 500 with the cause
 logged — the same fail-closed shape as the interactive update route.
+
+Downloads land under `<userData>/updates/channels/<slug>/` — one directory per channel.
+electron-builder's `updaterCacheDirName` derives from the package name, so every channel would
+otherwise share one path and two channels updating at once would fight over it.

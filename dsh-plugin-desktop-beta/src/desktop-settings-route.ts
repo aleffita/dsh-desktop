@@ -9,6 +9,7 @@ import { fitaChannel, FITA_CHANNELS, type FitaChannel } from './fita-channel.ts'
 import type { FitaChannelCheck } from './fita-release-source.ts'
 import type {
   DesktopChannelCheckResponse,
+  DesktopChannelDownloadResponse,
   DesktopChannelsResponse,
   DesktopMarketSelectRequest,
   DesktopProfileCreateRequest,
@@ -551,6 +552,50 @@ function channelCheckResponse(result: FitaChannelCheck, channel: FitaChannel): D
     sums: result.sums === undefined
       ? null
       : { name: result.sums.name, url: result.sums.browser_download_url },
+  }
+}
+
+/**
+ * Prepare one declared channel's build: download it and verify it.
+ *
+ * The renderer names a channel, never a URL or a version, so the Host decides what
+ * that channel currently offers and verifies what it receives against the release's
+ * own checksums.
+ * @param req - incoming request.
+ * @param res - response to finish.
+ * @param expectedOrigin - loopback origin every settings request must match.
+ * @param prepare - preparation implementation, bound to the Host generation.
+ * @param reportError - sink for unexpected failures.
+ */
+export async function handleDesktopChannelDownloadRequest(
+  req: IncomingMessage,
+  res: ServerResponse,
+  expectedOrigin: string,
+  prepare: (channel: FitaChannel) => Promise<DesktopChannelDownloadResponse>,
+  reportError: (operation: string, cause: unknown) => void = () => {},
+): Promise<void> {
+  if (req.method !== 'POST') return finishJson(res, 405, error('method not allowed'), 'POST')
+  if (!isSameOriginLoopbackRequest(req, expectedOrigin, true)) {
+    return finishJson(res, 403, error('forbidden'))
+  }
+  const value = await parsePostBody(req, res)
+  if (value === INVALID_BODY) return
+  const slug = typeof value === 'object' && value !== null
+    ? (value as { channel?: unknown }).channel
+    : undefined
+  if (typeof slug !== 'string' || slug.length === 0) {
+    return finishJson(res, 400, error('invalid channel download request'))
+  }
+  const channel = fitaChannel(slug)
+  if (channel === undefined) {
+    const response: DesktopChannelDownloadResponse = { status: 'failed', channel: slug, reason: 'unknown-channel' }
+    return finishJson(res, 200, response)
+  }
+  try {
+    finishJson(res, 200, await prepare(channel))
+  } catch (cause) {
+    reportError('prepare a channel build', cause)
+    finishJson(res, 500, error('the build could not be prepared'))
   }
 }
 
