@@ -140,3 +140,19 @@ the refusal to resolve an undeclared slug.
 
 So adding a channel stays a one-file change: declare it in `fita/channels.yml`, run
 `yarn fita:channels`, and both the pipeline and the app see it.
+
+## Asking that channel for a build
+
+`src/fita-release.ts` decides, from a release listing alone, which release a channel should
+offer: `fitaTagPattern` compiles the registry's `tag` pattern into an anchored matcher whose
+last group is the version, selection refuses drafts and other lanes' tags, and a stable channel
+never offers a prerelease — the tag pattern `v*` alone would let `v2.0.10-rc.1` into `main`,
+which is the rule the upstream download path already enforces. The DMG has to carry both the
+channel's `artifactSlug` and the requested version, so the wrong build cannot be installed by
+accident, and `fitaExpectedChecksum` reads one digest out of the release's `SHA256SUMS.txt`.
+
+`src/fita-release-source.ts` is the network half: it reads the listing of the repository the
+registry names and answers with one of three states — `offer` (version, release, DMG,
+checksums), `none` (the channel has published nothing eligible), or `failed` with a named
+reason (`request`, `response`, `malformed`). A channel check that could not complete is never
+reported as "up to date", because that is the one wrong answer a user cannot detect.
