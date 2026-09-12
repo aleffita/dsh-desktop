@@ -12,6 +12,7 @@ narrow path back upstream.
 | `WORKFLOWS.md` | the pipelines, release rules, the scheduled upstream reconciliation |
 | `PACKAGES.md` | what we publish, to which registry, and why the workspace names stay |
 | `PACKAGING.md` | one application (`dev.aleffita.dsh-harness`) with lanes switched inside it |
+| `MIGRATION-PNPM.md` | moving off Yarn to pnpm, and the local gates that make a push pipeline-safe |
 
 `fita/channels.yml` is the contract all four describe. `scripts/fita/fita.mjs` is the
 install manager. Planning lives in this fork's GitHub Projects: one item per task, each
