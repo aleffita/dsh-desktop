@@ -237,3 +237,48 @@ export function startFitaHandover(options: FitaHandoverStartOptions): readonly s
   options.spawn(options.executable, args, { detached: true, stdio: 'ignore' })
   return args
 }
+
+/** Inputs for waiting on the app that owns the bundle. */
+export interface FitaProcessWaitOptions {
+  /** Process to wait for. */
+  readonly pid: number
+  /** Whether that process is still running; defaults to signalling it with 0. */
+  readonly isAlive?: (pid: number) => boolean
+  /** Pause between probes; defaults to a timer. */
+  readonly pause?: (milliseconds: number) => Promise<void>
+  /** Probe interval in milliseconds. */
+  readonly intervalMs?: number
+}
+
+/** How long to wait between probes. Long enough to be cheap, short enough to feel immediate. */
+export const FITA_WAIT_INTERVAL_MS = 250
+
+/** Whether a process exists, without sending it a signal that would do anything. */
+function processIsAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch (error) {
+    // EPERM means it exists and belongs to somebody else; ESRCH means it is gone.
+    return (error as NodeJS.ErrnoException).code === 'EPERM'
+  }
+}
+
+/**
+ * Wait until the app that owns a bundle has exited.
+ *
+ * The probe is `kill(pid, 0)`, which asks the operating system whether the process exists
+ * and cannot affect it. There is no notification to subscribe to for a process that is not
+ * our child, so this is the mechanism, not busy-waiting on our own work: the paused
+ * interval is what keeps it cheap.
+ * @param options - process id, injected probe and pause for tests, and the interval.
+ * @returns a promise that resolves once the process is gone.
+ */
+export async function waitForProcessExit(options: FitaProcessWaitOptions): Promise<void> {
+  const isAlive = options.isAlive ?? processIsAlive
+  const pause = options.pause ?? (async (milliseconds: number) => {
+    await new Promise<void>(resolve => { setTimeout(resolve, milliseconds) })
+  })
+  const interval = options.intervalMs ?? FITA_WAIT_INTERVAL_MS
+  while (isAlive(options.pid)) await pause(interval)
+}

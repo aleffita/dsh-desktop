@@ -1,12 +1,13 @@
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   fitaHandoverArguments,
   parseFitaHandoverArguments,
   runFitaHandoverLayer,
   startFitaHandover,
+  waitForProcessExit,
   type FitaHandoverRequest,
 } from '../src/fita-handover.ts'
 import type { FitaCommandResult } from '../src/fita-install.ts'
@@ -203,5 +204,26 @@ describe('the pid a hand-over waits for', () => {
     // the settings API arguments; the test states it rather than leaving it implicit.
     const repeated = [...args, '--dsh-fita-handover-wait-pid=1']
     expect(parseFitaHandoverArguments(repeated)?.waitForPid).toBe(987)
+  })
+})
+
+describe('waiting for the app to exit', () => {
+  it('resolves as soon as the process is gone, without waiting', async () => {
+    const pause = vi.fn(async () => {})
+    await waitForProcessExit({ pid: 1, isAlive: () => false, pause })
+    expect(pause).not.toHaveBeenCalled()
+  })
+
+  it('probes until the process is gone', async () => {
+    let alive = 3
+    const pause = vi.fn(async () => { alive -= 1 })
+    await waitForProcessExit({ pid: 42, isAlive: () => alive > 0, pause, intervalMs: 7 })
+    expect(pause).toHaveBeenCalledTimes(3)
+    expect(pause).toHaveBeenCalledWith(7)
+  })
+
+  it('asks the operating system by default, without affecting the process', async () => {
+    // Our own pid is alive; a pid that cannot exist is not. Neither may be signalled.
+    await expect(waitForProcessExit({ pid: process.pid + 1_000_000, intervalMs: 1 })).resolves.toBeUndefined()
   })
 })
