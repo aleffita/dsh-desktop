@@ -23,22 +23,28 @@ const desktopRequire = createRequire(join(desktopRoot, 'package.json'))
 const TARGETS = ['dsh-plugin-desktop', 'dsh-plugin-desktop-beta']
 
 /** Fields a channel entry must declare, in the order the module renders them. */
-const FIELDS = ['slug', 'name', 'lane', 'tag', 'feed', 'appName', 'artifactSlug', 'bundleId', 'accent', 'onAccent', 'installs', 'description'] as const
+const LANE_FIELDS = ['slug', 'name', 'lane', 'tag', 'feed', 'artifactSlug', 'accent', 'onAccent', 'description'] as const
 
-interface Channel {
+/** Fields the one application declares. */
+const APPLICATION_FIELDS = ['bundleId', 'appName', 'installs'] as const
+
+interface Lane {
   readonly slug: string
   readonly name: string
   readonly lane: string
   readonly tag: string
   readonly feed: string
-  readonly appName: string
   readonly artifactSlug: string
-  readonly bundleId: string
   readonly accent: string
   readonly onAccent: string
   readonly prerelease: boolean
-  readonly installs: string
   readonly description: string
+}
+
+interface Application {
+  readonly bundleId: string
+  readonly appName: string
+  readonly installs: string
 }
 
 function fail(message: string): never {
@@ -57,51 +63,61 @@ function quote(value: string): string {
 /**
  * Validate the registry before anything is rendered from it.
  * @param registry - parsed `fita/channels.yml`.
- * @returns the validated channels.
+ * @returns the application and the validated lanes.
  */
-function validatedChannels(registry: Record<string, unknown>): Channel[] {
-  const channels = registry.channels
-  if (!Array.isArray(channels) || channels.length === 0) fail('fita/channels.yml declares no channels')
+function validatedRegistry(registry: Record<string, unknown>): { application: Application; lanes: Lane[] } {
+  const application = registry.application
+  if (typeof application !== 'object' || application === null) fail('fita/channels.yml declares no application')
+  const applicationRecord = application as Record<string, unknown>
+  for (const field of APPLICATION_FIELDS) {
+    if (typeof applicationRecord[field] !== 'string' || applicationRecord[field] === '') fail(`application has no ${field}`)
+  }
+  const lanes = registry.channels
+  if (!Array.isArray(lanes) || lanes.length === 0) fail('fita/channels.yml declares no channels')
   const seen = new Map<string, string>()
-  for (const [index, entry] of channels.entries()) {
+  for (const [index, entry] of lanes.entries()) {
     if (typeof entry !== 'object' || entry === null) fail(`channel ${String(index)} is not a mapping`)
-    const channel = entry as Record<string, unknown>
-    for (const field of FIELDS) {
-      if (typeof channel[field] !== 'string' || channel[field] === '') fail(`channel ${String(index)} has no ${field}`)
+    const lane = entry as Record<string, unknown>
+    for (const field of LANE_FIELDS) {
+      if (typeof lane[field] !== 'string' || lane[field] === '') fail(`channel ${String(index)} has no ${field}`)
     }
-    if (typeof channel.prerelease !== 'boolean') fail(`channel ${String(channel.slug)} has no boolean prerelease`)
-    if (!/^[a-z][a-z0-9]*$/u.test(channel.slug as string)) fail(`slug ${String(channel.slug)} must be lowercase alphanumeric`)
-    for (const field of ['bundleId', 'appName', 'artifactSlug', 'installs'] as const) {
-      const value = channel[field] as string
+    if (typeof lane.prerelease !== 'boolean') fail(`channel ${String(lane.slug)} has no boolean prerelease`)
+    if (!/^[a-z][a-z0-9]*$/u.test(lane.slug as string)) fail(`slug ${String(lane.slug)} must be lowercase alphanumeric`)
+    // A lane's identity is its release stream now: two lanes cannot claim the same tag,
+    // feed or artifact prefix, or one release would be indistinguishable from another's.
+    for (const field of ['tag', 'feed', 'artifactSlug'] as const) {
+      const value = lane[field] as string
       const owner = seen.get(`${field}:${value}`)
-      if (owner !== undefined) fail(`${field} "${value}" is claimed by both ${owner} and ${String(channel.slug)}`)
-      seen.set(`${field}:${value}`, channel.slug as string)
+      if (owner !== undefined) fail(`${field} "${value}" is claimed by both ${owner} and ${String(lane.slug)}`)
+      seen.set(`${field}:${value}`, lane.slug as string)
     }
   }
-  return channels as Channel[]
+  return { application: application as Application, lanes: lanes as Lane[] }
 }
 
 /**
  * Render the generated module.
  * @param registry - validated registry header values.
- * @param channels - validated channel entries.
+ * @param application - the one application identity.
+ * @param lanes - validated lanes.
  * @returns the exact file content both editions receive.
  */
-function render(registry: { version: number; repository: string; product: string }, channels: readonly Channel[]): string {
-  const entries = channels.map(channel => `  Object.freeze({
-    slug: ${quote(channel.slug)},
-    name: ${quote(channel.name)},
-    lane: ${quote(channel.lane)},
-    tag: ${quote(channel.tag)},
-    feed: ${quote(channel.feed)},
-    appName: ${quote(channel.appName)},
-    artifactSlug: ${quote(channel.artifactSlug)},
-    bundleId: ${quote(channel.bundleId)},
-    accent: ${quote(channel.accent)},
-    onAccent: ${quote(channel.onAccent)},
-    prerelease: ${String(channel.prerelease)},
-    installs: ${quote(channel.installs)},
-    description: ${quote(channel.description)},
+function render(
+  registry: { version: number; repository: string; product: string },
+  application: Application,
+  lanes: readonly Lane[],
+): string {
+  const entries = lanes.map(lane => `  Object.freeze({
+    slug: ${quote(lane.slug)},
+    name: ${quote(lane.name)},
+    lane: ${quote(lane.lane)},
+    tag: ${quote(lane.tag)},
+    feed: ${quote(lane.feed)},
+    artifactSlug: ${quote(lane.artifactSlug)},
+    accent: ${quote(lane.accent)},
+    onAccent: ${quote(lane.onAccent)},
+    prerelease: ${String(lane.prerelease)},
+    description: ${quote(lane.description)},
   }),`).join('\n')
   return `/**
  * Generated from fita/channels.yml — do not edit.
@@ -111,32 +127,36 @@ function render(registry: { version: number; repository: string; product: string
  * file and fita/channels.yml disagree.
  */
 
-/** One installable lane, exactly as fita/channels.yml declares it. */
-export interface FitaChannel {
+/** The identity every build shares: one application, many lanes. */
+export interface FitaApplication {
+  /** Bundle identifier of the single installed application. */
+  readonly bundleId: string
+  /** Name of the single installed application. */
+  readonly appName: string
+  /** Where \`fita install\` puts that application. */
+  readonly installs: string
+}
+
+/** One release stream, exactly as fita/channels.yml declares it. */
+export interface FitaLane {
   /** Registry slug; the value \`fita:package\` stamps into the build as \`fitaChannel\`. */
   readonly slug: string
-  /** Human channel name. */
+  /** Human lane name. */
   readonly name: string
   /** Git lane that produces this build. */
   readonly lane: string
-  /** Tag pattern the release workflow accepts for this channel. */
+  /** Tag pattern the release workflow accepts for this lane. */
   readonly tag: string
   /** electron-updater channel; the release carries \`<feed>-mac.yml\`. */
   readonly feed: string
-  /** App bundle name. */
-  readonly appName: string
-  /** URL-safe prefix the updater feed records for this channel's artifacts. */
+  /** URL-safe prefix the feed records for this lane's artifacts. */
   readonly artifactSlug: string
-  /** Bundle identifier, unique per channel so installs stand side by side. */
-  readonly bundleId: string
   /** Header accent colour. */
   readonly accent: string
   /** Foreground colour used on the accent. */
   readonly onAccent: string
-  /** Whether releases in this channel are pre-releases. */
+  /** Whether releases in this lane are pre-releases. */
   readonly prerelease: boolean
-  /** Install path \`fita install <slug>\` uses. */
-  readonly installs: string
   /** One-line description shown to the operator. */
   readonly description: string
 }
@@ -145,11 +165,18 @@ export interface FitaChannel {
 export const FITA_REGISTRY_VERSION = ${String(registry.version)}
 /** Repository hosting this product's releases. */
 export const FITA_REGISTRY_REPOSITORY = ${quote(registry.repository)}
-/** Product name shared by every channel. */
+/** Product name shared by every lane. */
 export const FITA_REGISTRY_PRODUCT = ${quote(registry.product)}
 
-/** Every installable channel, in registry order. */
-export const FITA_CHANNELS: readonly FitaChannel[] = Object.freeze([
+/** The one application these lanes belong to. */
+export const FITA_APPLICATION: FitaApplication = Object.freeze({
+  bundleId: ${quote(application.bundleId)},
+  appName: ${quote(application.appName)},
+  installs: ${quote(application.installs)},
+})
+
+/** Every release stream, in registry order. */
+export const FITA_LANES: readonly FitaLane[] = Object.freeze([
 ${entries}
 ])
 `
@@ -163,9 +190,11 @@ function main(argv: readonly string[]): void {
   for (const field of ['repository', 'product'] as const) {
     if (typeof registry[field] !== 'string' || registry[field] === '') fail(`fita/channels.yml declares no ${field}`)
   }
+  const { application, lanes } = validatedRegistry(registry)
   const source = render(
     { version, repository: registry.repository as string, product: registry.product as string },
-    validatedChannels(registry),
+    application,
+    lanes,
   )
 
   const drifted: string[] = []

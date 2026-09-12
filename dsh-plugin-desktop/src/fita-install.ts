@@ -16,19 +16,21 @@ import { existsSync, mkdtempSync, readdirSync, rmSync } from 'node:fs'
 import { mkdir } from 'node:fs/promises'
 import { homedir, tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
-import type { FitaChannel } from './fita-channel.ts'
+import { FITA_APPLICATION } from './fita-channel.ts'
+import type { FitaApplication, FitaChannel } from './fita-channel.ts'
 
 /**
- * Where a channel's app bundle belongs on this machine.
+ * Where the application belongs on this machine.
  *
- * The registry records `~/Applications/<appName>.app`; installing anywhere else would
- * leave a second copy that no channel owns.
- * @param channel - channel whose install path is resolved.
+ * There is one application now, so this path does not depend on which lane is installed:
+ * the registry records `~/Applications/<appName>.app` once, and installing anywhere else
+ * would leave a second copy nothing owns.
+ * @param application - the application identity to resolve.
  * @param home - home directory to expand `~` against.
- * @returns the absolute path of the channel's own bundle.
+ * @returns the absolute path of the installed application.
  */
-export function fitaInstallPath(channel: FitaChannel, home: string = homedir()): string {
-  return join(home, channel.installs.replace(/^~\//u, ''))
+export function fitaInstallPath(application: FitaApplication = FITA_APPLICATION, home: string = homedir()): string {
+  return join(home, application.installs.replace(/^~\//u, ''))
 }
 
 /** Why a hand-over must not proceed. */
@@ -49,6 +51,8 @@ export interface FitaHandoverRequest {
   readonly preparedPath: string
   /** Bundle the install would replace. */
   readonly destination: string
+  /** The application identity the destination must belong to. */
+  readonly runningApplication?: FitaApplication
   /** Home directory the channel's own path is resolved against. */
   readonly home: string
 }
@@ -67,7 +71,7 @@ export function planFitaHandover(request: FitaHandoverRequest): FitaHandoverPlan
   if (request.preparedChannel !== request.runningChannel.slug) {
     return { status: 'refused', reason: 'not-this-channel' }
   }
-  if (request.destination !== fitaInstallPath(request.runningChannel, request.home)) {
+  if (request.destination !== fitaInstallPath(request.runningApplication ?? FITA_APPLICATION, request.home)) {
     return { status: 'refused', reason: 'destination-mismatch' }
   }
   return { status: 'install', dmgPath: request.preparedPath, destination: request.destination }

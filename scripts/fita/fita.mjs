@@ -27,6 +27,9 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..')
 // a dependency to the private workspace root.
 const { parse } = createRequire(join(root, 'dsh-plugin-desktop', 'package.json'))('yaml')
 const registry = parse(readFileSync(join(root, 'fita', 'channels.yml'), 'utf8'))
+// One application, many lanes: identity and install path come from `application`, while a
+// lane is the release stream a build belongs to.
+const application = registry.application
 const channels = registry.channels ?? []
 
 function fail(message) {
@@ -49,8 +52,8 @@ function expand(path) {
  * under a single root, which is how the e2e checks install without touching the
  * applications the user actually runs.
  */
-function installPath(channel) {
-  const destination = expand(channel.installs)
+function installPath() {
+  const destination = expand(application.installs)
   const root = process.env.FITA_INSTALL_ROOT
   return root === undefined ? destination : join(resolve(root), basename(destination))
 }
@@ -62,7 +65,7 @@ function channelFor(slug) {
 }
 
 function installedVersion(channel) {
-  const bundle = join(installPath(channel), 'Contents', 'Info.plist')
+  const bundle = join(installPath(), 'Contents', 'Info.plist')
   if (!existsSync(bundle)) return undefined
   return run('/usr/libexec/PlistBuddy', ['-c', 'Print :CFBundleShortVersionString', bundle])
 }
@@ -89,7 +92,7 @@ function commandList() {
     const version = installedVersion(channel)
     process.stdout.write(
       `${channel.slug.padEnd(6)} lane=${String(channel.lane).padEnd(22)} ` +
-      `accent=${channel.accent} app="${channel.appName}" ` +
+      `accent=${channel.accent} app="${application.appName}" ` +
       `installed=${version ?? '-'}\n`
     )
   }
@@ -98,7 +101,7 @@ function commandList() {
 function commandStatus() {
   for (const channel of channels) {
     const version = installedVersion(channel)
-    process.stdout.write(`${channel.slug.padEnd(6)} ${version === undefined ? 'not installed' : version}  ${channel.installs}\n`)
+    process.stdout.write(`${channel.slug.padEnd(6)} ${version === undefined ? 'not installed' : version}  ${application.installs}\n`)
   }
 }
 
@@ -161,12 +164,12 @@ function commandInstall(slug, requestedVersion, fromDir) {
   try {
     const candidates = run('find', [mount, '-maxdepth', '1', '-name', '*.app']).split('\n').filter(Boolean)
     if (candidates.length !== 1) fail(`expected one app in the DMG, found ${candidates.length}`)
-    const destination = installPath(channel)
+    const destination = installPath()
     rmSync(destination, { recursive: true, force: true })
     run('mkdir', ['-p', dirname(destination)])
     run('ditto', [candidates[0], destination])
     run('xattr', ['-dr', 'com.apple.quarantine', destination])
-    process.stdout.write(`fita: installed ${channel.appName} ${version} at ${destination}\n`)
+    process.stdout.write(`fita: installed ${application.appName} ${version} at ${destination}\n`)
   } finally {
     spawnSync('hdiutil', ['detach', mount, '-quiet'], { encoding: 'utf8' })
     rmSync(work, { recursive: true, force: true })
@@ -175,15 +178,15 @@ function commandInstall(slug, requestedVersion, fromDir) {
 
 function commandUse(slug) {
   const channel = channelFor(slug)
-  const destination = installPath(channel)
-  if (!existsSync(destination)) fail(`${channel.appName} is not installed; run: yarn fita install ${slug}`)
+  const destination = installPath()
+  if (!existsSync(destination)) fail(`${application.appName} is not installed; run: yarn fita install ${slug}`)
   run('open', ['-a', destination])
 }
 
 function commandUninstall(slug) {
   const channel = channelFor(slug)
-  rmSync(installPath(channel), { recursive: true, force: true })
-  process.stdout.write(`fita: removed ${channel.appName}\n`)
+  rmSync(installPath(), { recursive: true, force: true })
+  process.stdout.write(`fita: removed ${application.appName}\n`)
 }
 
 function main(argv) {

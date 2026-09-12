@@ -23,12 +23,16 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..')
 const desktopRoot = join(root, 'dsh-plugin-desktop')
 const desktopRequire = createRequire(join(desktopRoot, 'package.json'))
 
-interface Channel {
+interface Lane {
   readonly name: string
   readonly slug: string
   readonly feed: string
-  readonly appName: string
+}
+
+interface Application {
   readonly bundleId: string
+  readonly appName: string
+  readonly installs: string
 }
 
 function fail(message: string): never {
@@ -54,7 +58,12 @@ function feedValue(feed: string, key: string): string | undefined {
 
 function main(argv: readonly string[]): void {
   const outputDir = resolve(argv.find(argument => !argument.startsWith('--')) ?? fail('missing output directory'))
-  const registry = desktopRequire('yaml').parse(readFileSync(join(root, 'fita', 'channels.yml'), 'utf8'))
+  const registry = desktopRequire('yaml').parse(readFileSync(join(root, 'fita', 'channels.yml'), 'utf8')) as {
+    application: Application
+    channels: Lane[]
+    repository: string
+  }
+  const application = registry.application
   const slug = argv.find(argument => argument.startsWith('--channel='))?.split('=')[1]
     ?? process.env.FITA_CHANNEL
     ?? basename(outputDir).replace(/^mac-/u, '')
@@ -71,19 +80,19 @@ function main(argv: readonly string[]): void {
   const mount = mkdtempSync(join(process.env.TMPDIR ?? '/tmp', 'fita-verify-'))
   run('hdiutil', ['attach', dmg, '-nobrowse', '-readonly', '-mountpoint', mount])
   try {
-    const appPath = join(mount, `${channel.appName}.app`)
+    const appPath = join(mount, `${application.appName}.app`)
     if (!existsSync(appPath)) {
       const found = (spawnSync('find', [mount, '-maxdepth', '1', '-name', '*.app'], { encoding: 'utf8' }).stdout ?? '')
         .split('\n').filter(Boolean)
-      problems.push(`expected "${channel.appName}.app" in the DMG, found ${found.map(entry => basename(entry)).join(', ') || 'none'}`)
+      problems.push(`expected "${application.appName}.app" in the DMG, found ${found.map(entry => basename(entry)).join(', ') || 'none'}`)
     } else {
       const plist = join(appPath, 'Contents', 'Info.plist')
       const identifier = plistValue(plist, 'CFBundleIdentifier')
-      if (identifier !== channel.bundleId) problems.push(`CFBundleIdentifier is ${identifier ?? 'absent'}, expected ${channel.bundleId}`)
+      if (identifier !== application.bundleId) problems.push(`CFBundleIdentifier is ${identifier ?? 'absent'}, expected ${application.bundleId}`)
       const shortVersion = plistValue(plist, 'CFBundleShortVersionString')
       if (shortVersion !== version) problems.push(`CFBundleShortVersionString is ${shortVersion ?? 'absent'}, expected ${version}`)
       const display = plistValue(plist, 'CFBundleDisplayName') ?? plistValue(plist, 'CFBundleName')
-      if (display !== channel.appName) problems.push(`CFBundleDisplayName is ${display ?? 'absent'}, expected ${channel.appName}`)
+      if (display !== application.appName) problems.push(`CFBundleDisplayName is ${display ?? 'absent'}, expected ${application.appName}`)
 
       const updateFile = join(appPath, 'Contents', 'Resources', 'app-update.yml')
       if (!existsSync(updateFile)) {
@@ -126,7 +135,7 @@ function main(argv: readonly string[]): void {
     for (const problem of problems) process.stderr.write(`fita-verify: ${problem}\n`)
     process.exit(1)
   }
-  process.stdout.write(`fita-verify: ${slug} ok — ${basename(dmg)}, ${channel.bundleId}, feed ${channel.feed}-mac.yml\n`)
+  process.stdout.write(`fita-verify: ${slug} ok — ${basename(dmg)}, ${application.bundleId}, feed ${channel.feed}-mac.yml\n`)
 }
 
 try {

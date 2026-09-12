@@ -38,12 +38,16 @@ function asarHas(archive: string, innerPath: string): boolean | undefined {
   }
 }
 
-interface Channel {
+interface Lane {
   readonly name: string
   readonly slug: string
   readonly feed: string
-  readonly appName: string
+}
+
+interface Application {
   readonly bundleId: string
+  readonly appName: string
+  readonly installs: string
 }
 
 const problems: string[] = []
@@ -81,9 +85,11 @@ function main(argv: readonly string[]): void {
   }
   const keep = argv.includes('--keep')
   const installRoot = flag('root') ?? mkdtempSync(join(process.env.TMPDIR ?? '/tmp', 'fita-e2e-'))
+  const installedPaths: string[] = []
   const version = JSON.parse(readFileSync(join(desktopRoot, 'package.json'), 'utf8')).version
   const registry = desktopRequire('yaml').parse(readFileSync(join(root, 'fita', 'channels.yml'), 'utf8'))
-  const channels: Channel[] = registry.channels
+  const application: Application = registry.application
+  const channels: Lane[] = registry.channels
   const env = { ...process.env, FITA_INSTALL_ROOT: installRoot }
 
   note(`installing ${slugs.join(', ')} under ${installRoot}`)
@@ -105,14 +111,20 @@ function main(argv: readonly string[]): void {
     }
     note(`${slug}: installed`)
 
-    const appPath = join(installRoot, `${channel.appName}.app`)
+    // One application, so every lane's build must land on the same path: applying a lane
+    // over this app is what choosing a lane does.
+    const appPath = join(installRoot, `${application.appName}.app`)
     if (!existsSync(appPath)) {
-      problems.push(`${slug}: expected ${channel.appName}.app in ${installRoot}`)
+      problems.push(`${slug}: expected ${application.appName}.app in ${installRoot}`)
       continue
     }
+    if (installedPaths.length > 0 && !installedPaths.includes(appPath)) {
+      problems.push(`${slug}: installed to ${appPath}, but another lane installed to ${installedPaths[0] ?? ''}`)
+    }
+    installedPaths.push(appPath)
     const plist = join(appPath, 'Contents', 'Info.plist')
     const identifier = plistValue(plist, 'CFBundleIdentifier')
-    if (identifier !== channel.bundleId) problems.push(`${slug}: bundle id ${identifier ?? 'absent'} != ${channel.bundleId}`)
+    if (identifier !== application.bundleId) problems.push(`${slug}: bundle id ${identifier ?? 'absent'} != ${application.bundleId}`)
     const shortVersion = plistValue(plist, 'CFBundleShortVersionString')
     if (shortVersion !== version) problems.push(`${slug}: version ${shortVersion ?? 'absent'} != ${version}`)
 
@@ -126,7 +138,7 @@ function main(argv: readonly string[]): void {
 
     // Headless boot through the embedded Harness CLI: proves the packaged runtime
     // resolves and starts without opening the app the user is running.
-    const executable = join(appPath, 'Contents', 'MacOS', channel.appName)
+    const executable = join(appPath, 'Contents', 'MacOS', application.appName)
     const archive = join(appPath, 'Contents', 'Resources', 'app.asar')
     const cliInner = 'node_modules/@deepseek-ai/dsh/lib/bin.js'
     const cli = join(archive, ...cliInner.split('/'))
@@ -144,14 +156,12 @@ function main(argv: readonly string[]): void {
     }
   }
 
-  // Side-by-side invariant: two channels must never claim the same identity.
+  // One-application invariant: every lane applies to the same bundle, and no lane claims an
+  // identity of its own. Two lanes disagreeing on the path is the failure this catches.
   const installed = slugs
     .map(slug => channels.find(entry => entry.slug === slug))
-    .filter((channel): channel is Channel => channel !== undefined)
-  const identifiers = new Set(installed.map(channel => channel.bundleId))
-  const names = new Set(installed.map(channel => channel.appName))
-  if (identifiers.size !== installed.length) problems.push('channels share a bundle identifier')
-  if (names.size !== installed.length) problems.push('channels share an app name')
+    .filter((channel): channel is Lane => channel !== undefined)
+  if (new Set(installedPaths).size > 1) problems.push('lanes installed to different paths')
 
   if (!keep) rmSync(installRoot, { recursive: true, force: true })
 
@@ -159,7 +169,7 @@ function main(argv: readonly string[]): void {
     for (const problem of problems) process.stderr.write(`fita-e2e: ${problem}\n`)
     process.exit(1)
   }
-  note(`ok — ${installed.length} channels installed side by side under ${installRoot}`)
+  note(`ok — ${String(installed.length)} lanes applied over one application under ${installRoot}`)
 }
 
 try {

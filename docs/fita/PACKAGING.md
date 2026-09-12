@@ -1,6 +1,7 @@
 # Fita Harness — one application, many lanes
 
-This file records a decision that came from the product owner and narrows what the earlier
+This file records the decision, and it is now implemented in the registry, the packaging
+scripts, the installer and the e2e. The product owner's correction narrowed what the earlier
 slices assumed:
 
 > One bundle id — `dev.aleffita.dsh-harness` — one application in `Applications`, and inside it
@@ -57,5 +58,7 @@ Per-lane identity is referenced 60 times across `fita/channels.yml`, `scripts/fi
    `dev.aleffita.dsh-harness` — `yarn fita:verify-update` already proves the swap itself.
 5. Docs: `CHANNELS.md`, `INSTALLS.md`, `README.md` and this file kept in step.
 
-Until that lands, the per-lane builds remain what the repository produces, and they are honest
-about it: two apps side by side, each with its own identity and feed.
+Landed: `fita/channels.yml` declares one `application` block and lanes without identity,
+`FITA_APPLICATION` travels with every build, `fita install` puts one application in
+`~/Applications/DSH Harness.app`, and the e2e applies two lanes over that one bundle and boots
+it — `yarn fita list` shows every lane carrying `app="DSH Harness"`, `bundle=dev.aleffita.dsh-harness`.

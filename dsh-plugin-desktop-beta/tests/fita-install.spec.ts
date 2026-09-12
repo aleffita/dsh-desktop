@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { fitaChannel } from '../src/fita-channel.ts'
+import { FITA_APPLICATION, fitaChannel } from '../src/fita-channel.ts'
 import {
   fitaInstallPath,
   installFitaPreparedBuild,
@@ -144,7 +144,7 @@ describe('installing a prepared build', () => {
 
 describe('hand-over plan', () => {
   const dev = fitaChannel('dev')!
-  const destination = fitaInstallPath(dev, '/home/operator')
+  const destination = fitaInstallPath(FITA_APPLICATION, '/home/operator')
 
   it('installs the running channel own build over its own bundle', () => {
     expect(planFitaHandover({
@@ -157,8 +157,7 @@ describe('hand-over plan', () => {
   })
 
   it('resolves the channel path from the registry, not from the caller', () => {
-    expect(fitaInstallPath(dev, '/home/operator')).toBe('/home/operator/Applications/DSH Fita Dev.app')
-    expect(fitaInstallPath(fitaChannel('beta')!, '/home/operator')).toBe('/home/operator/Applications/DSH Fita Beta.app')
+    expect(fitaInstallPath(FITA_APPLICATION, '/home/operator')).toBe('/home/operator/Applications/DSH Harness.app')
   })
 
   it('refuses a build that belongs to another channel', () => {

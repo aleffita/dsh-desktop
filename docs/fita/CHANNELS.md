@@ -6,6 +6,11 @@ a channel name.
 
 ## Registry
 
+`fita/channels.yml` declares **one application** — `bundleId`, `appName`, `installs` — and the
+lanes that ship it. A lane is a release stream: `tag`, `feed`, `artifactSlug`, `accent`, `name`,
+`description`, `prerelease`. Nothing per lane is an install identity any more, because there is
+one install: choosing a lane applies that lane's payload to it.
+
 | channel | lane | tag | feed | app | accent |
 | --- | --- | --- | --- | --- | --- |
 | Main | `master` | `v*` | `latest-mac.yml` | `DSH Fita` | `#1F6FEB` design-system blue |

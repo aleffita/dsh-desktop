@@ -194,19 +194,18 @@ jobs:
             const yaml = require('yaml');
             const fs = require('fs');
             const registry = yaml.parse(fs.readFileSync('fita/channels.yml', 'utf8'));
-            const channel = registry.channels.find(entry => entry.slug === process.argv[1]);
-            process.stdout.write(channel.appName);
-          " "$SLUG")"
+            process.stdout.write(registry.application.appName);
+          ")""
           title="${app_name} ${VERSION} — macOS universal"
           notes="$(mktemp)"
           {
-            echo "Unsigned macOS universal build of the **${SLUG}** channel (\`${app_name}\`), cut from \`${SLUG}\`'s lane of \`aleffita/dsh-desktop\`."
+            echo "Unsigned macOS universal build of the **${SLUG}** lane of **${app_name}**, cut from \`${SLUG}\`'s branch of \`aleffita/dsh-desktop\`."
             echo
             echo "| | |"
             echo "|---|---|"
             echo "| Channel | \`${SLUG}\` |"
             echo "| Version | \`${VERSION}\` |"
-            echo "| App | \`${app_name}\` |"
+            echo "| Application | \`${app_name}\` |"
             echo "| Platform | macOS universal (arm64 + x64) |"
             echo "| Signing | unsigned, not notarized |"
             echo "| Update feed | ${FEED:-none} |"

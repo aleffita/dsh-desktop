@@ -5,7 +5,7 @@ import { assertDesktopProfileName } from './profile-manager.ts'
 import type { DesktopMarketProvider } from './desktop-market.ts'
 import type DesktopSettingsController from './desktop-settings-controller.ts'
 import type { DesktopSettingsPostResponse } from './desktop-settings-controller.ts'
-import { fitaChannel, FITA_CHANNELS, type FitaChannel } from './fita-channel.ts'
+import { fitaChannel, FITA_APPLICATION, FITA_CHANNELS, type FitaChannel } from './fita-channel.ts'
 import type { FitaChannelCheck } from './fita-release-source.ts'
 import type {
   DesktopChannelApplyResponse,
@@ -532,6 +532,11 @@ export async function handleDesktopChannelsRequest(
   if (value === INVALID_BODY) return
   if (!isEmptyRequest(value)) return finishJson(res, 400, error('invalid channel request'))
   const response: DesktopChannelsResponse = {
+    application: {
+      bundleId: FITA_APPLICATION.bundleId,
+      appName: FITA_APPLICATION.appName,
+      installs: FITA_APPLICATION.installs,
+    },
     current: current?.slug ?? null,
     channels: FITA_CHANNELS.map(channel => ({ ...channel, current: channel.slug === current?.slug })),
   }

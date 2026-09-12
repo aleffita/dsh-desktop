@@ -22,10 +22,15 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..')
 const desktopRoot = join(root, 'dsh-plugin-desktop')
 const desktopRequire = createRequire(join(desktopRoot, 'package.json'))
 
-interface Channel {
+interface Lane {
   readonly slug: string
-  readonly appName: string
+  readonly feed: string
+}
+
+interface Application {
   readonly bundleId: string
+  readonly appName: string
+  readonly installs: string
 }
 
 const problems: string[] = []
@@ -61,7 +66,11 @@ function main(argv: readonly string[]): void {
     dmg: string
     dmgSha256: string
   }
-  const registry = desktopRequire('yaml').parse(readFileSync(join(root, 'fita', 'channels.yml'), 'utf8')) as { channels: Channel[] }
+  const registry = desktopRequire('yaml').parse(readFileSync(join(root, 'fita', 'channels.yml'), 'utf8')) as {
+    application: Application
+    channels: Lane[]
+  }
+  const application = registry.application
   const channel = registry.channels.find(entry => entry.slug === built.channel)
   if (channel === undefined) {
     process.stderr.write(`fita-prepared: ${built.channel} is not in the registry\n`)
@@ -90,12 +99,12 @@ function main(argv: readonly string[]): void {
     problems.push(`install failed: ${(install.stderr || install.stdout).trim().slice(0, 300)}`)
   } else {
     note(`installed: ${(install.stdout || '').trim().split('\n').slice(-1)[0] ?? ''}`)
-    const app = join(installRoot, `${channel.appName}.app`)
+    const app = join(installRoot, `${application.appName}.app`)
     if (!existsSync(app)) {
-      problems.push(`expected ${channel.appName}.app in ${installRoot}`)
+      problems.push(`expected ${application.appName}.app in ${installRoot}`)
     } else {
       const identifier = plistValue(join(app, 'Contents', 'Info.plist'), 'CFBundleIdentifier')
-      if (identifier !== channel.bundleId) problems.push(`bundle id ${identifier ?? 'absent'} != ${channel.bundleId}`)
+      if (identifier !== application.bundleId) problems.push(`bundle id ${identifier ?? 'absent'} != ${application.bundleId}`)
       const version = plistValue(join(app, 'Contents', 'Info.plist'), 'CFBundleShortVersionString')
       if (version !== built.version) problems.push(`version ${version ?? 'absent'} != ${built.version}`)
     }
@@ -109,7 +118,7 @@ function main(argv: readonly string[]): void {
     for (const problem of problems) process.stderr.write(`fita-prepared: ${problem}\n`)
     process.exit(1)
   }
-  note(`ok — a cache prepared like the app's installed ${channel.appName} ${built.version} side by side`)
+  note(`ok — a cache prepared like the app's installed ${application.appName} ${built.version}`)
 }
 
 try {

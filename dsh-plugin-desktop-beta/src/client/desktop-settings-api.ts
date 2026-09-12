@@ -106,24 +106,30 @@ export interface DesktopChannelView {
   readonly tag: string
   /** Updater feed name. */
   readonly feed: string
-  /** App bundle name. */
-  readonly appName: string
-  /** Bundle identifier. */
-  readonly bundleId: string
   /** Header accent colour. */
   readonly accent: string
   /** Whether this channel publishes pre-releases. */
   readonly prerelease: boolean
-  /** Install path the local installer uses. */
-  readonly installs: string
   /** One-line description. */
   readonly description: string
   /** Whether the renderer is running inside this channel. */
   readonly current: boolean
 }
 
-/** Every channel this build knows, and which one it is. */
+/** The one application these lanes belong to. */
+export interface DesktopApplicationView {
+  /** Bundle identifier of the single installed application. */
+  readonly bundleId: string
+  /** Name of the single installed application. */
+  readonly appName: string
+  /** Where the local installer puts that application. */
+  readonly installs: string
+}
+
+/** Every lane this build knows, which one it is, and the application they belong to. */
 export interface DesktopChannelsResponse {
+  /** The single application, the same for every lane. */
+  readonly application: DesktopApplicationView
   /** Slug of the running build's channel, or null when this build carries no stamp. */
   readonly current: string | null
   /** Catalogue, in registry order. */
@@ -423,7 +429,7 @@ function parseChannelArtifact(value: unknown): DesktopChannelArtifact | null {
 
 function parseChannelView(value: unknown): DesktopChannelView {
   if (!isObject(value)) throw new Error('dsh-plugin-desktop: invalid Desktop channel')
-  const strings = ['slug', 'name', 'lane', 'tag', 'feed', 'appName', 'bundleId', 'accent', 'installs', 'description'] as const
+  const strings = ['slug', 'name', 'lane', 'tag', 'feed', 'accent', 'description'] as const
   for (const field of strings) {
     if (typeof value[field] !== 'string') throw new Error('dsh-plugin-desktop: invalid Desktop channel')
   }
@@ -436,11 +442,8 @@ function parseChannelView(value: unknown): DesktopChannelView {
     lane: value.lane as string,
     tag: value.tag as string,
     feed: value.feed as string,
-    appName: value.appName as string,
-    bundleId: value.bundleId as string,
     accent: value.accent as string,
     prerelease: value.prerelease,
-    installs: value.installs as string,
     description: value.description as string,
     current: value.current,
   })
@@ -455,8 +458,23 @@ export function parseDesktopChannelsResponse(value: unknown): DesktopChannelsRes
   if (current !== null && typeof current !== 'string') {
     throw new Error('dsh-plugin-desktop: invalid Desktop channels response')
   }
+  const application = value.application
+  if (!isObject(application)
+    || typeof application.bundleId !== 'string'
+    || typeof application.appName !== 'string'
+    || typeof application.installs !== 'string') {
+    throw new Error('dsh-plugin-desktop: invalid Desktop channels application')
+  }
   const channels = value.channels.map(parseChannelView)
-  return Object.freeze({ current, channels: Object.freeze(channels) })
+  return Object.freeze({
+    application: Object.freeze({
+      bundleId: application.bundleId,
+      appName: application.appName,
+      installs: application.installs,
+    }),
+    current,
+    channels: Object.freeze(channels),
+  })
 }
 
 /** Parse the outcome of checking one channel. */

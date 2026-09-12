@@ -1,8 +1,9 @@
 # Fita Harness — installed builds
 
-Several channels live side by side on one machine. Nothing is dragged into
-`/Applications` by hand: a channel resolves to a release of our fork, the DMG is verified
-and unpacked by the install manager.
+One application, installed once, with lanes chosen inside it. Nothing is dragged into
+`/Applications` by hand: a lane resolves to a release of our fork, the DMG is verified and
+unpacked by the install manager, and `yarn fita list` shows every lane belonging to the same
+`app="DSH Harness"` / `bundle=dev.aleffita.dsh-harness`.
 
 ## Install manager
 

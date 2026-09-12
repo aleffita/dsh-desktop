@@ -8,11 +8,18 @@
  * guessed, because offering the wrong channel means offering the wrong release.
  */
 
-import { FITA_CHANNELS } from './fita-channels.generated.ts'
-import type { FitaChannel } from './fita-channels.generated.ts'
+import { FITA_APPLICATION, FITA_LANES } from './fita-channels.generated.ts'
+import type { FitaApplication, FitaLane } from './fita-channels.generated.ts'
 
-export type { FitaChannel }
-export { FITA_CHANNELS }
+/**
+ * A lane is what this file has always called a channel: one release stream of the single
+ * application these builds belong to. The historical name is kept as an alias because the
+ * update path, the settings API and the UI all speak of channels.
+ */
+export type { FitaApplication, FitaLane }
+export type FitaChannel = FitaLane
+export const FITA_CHANNELS: readonly FitaLane[] = FITA_LANES
+export { FITA_APPLICATION, FITA_LANES }
 
 /** The stamp `fita:package` writes into a packaged build's `package.json`. */
 export interface FitaBuildIdentity {

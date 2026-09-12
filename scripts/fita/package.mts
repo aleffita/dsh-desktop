@@ -32,16 +32,20 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..')
 const desktopRoot = join(root, 'dsh-plugin-desktop')
 const desktopRequire = createRequire(join(desktopRoot, 'package.json'))
 
-interface Channel {
+interface Lane {
   readonly name: string
   readonly slug: string
   readonly lane: string
   readonly feed: string
-  readonly appName: string
   readonly artifactSlug: string
-  readonly bundleId: string
   readonly accent: string
   readonly prerelease: boolean
+}
+
+interface Application {
+  readonly bundleId: string
+  readonly appName: string
+  readonly installs: string
 }
 
 function fail(message: string): never {
@@ -49,8 +53,13 @@ function fail(message: string): never {
   process.exit(1)
 }
 
-function registry(): { product: string; repository: string; channels: Channel[] } {
-  return desktopRequire('yaml').parse(readFileSync(join(root, 'fita', 'channels.yml'), 'utf8'))
+function registry(): { application: Application; product: string; repository: string; channels: Lane[] } {
+  return desktopRequire('yaml').parse(readFileSync(join(root, 'fita', 'channels.yml'), 'utf8')) as {
+    application: Application
+    channels: Lane[]
+    product: string
+    repository: string
+  }
 }
 
 function desktopVersion(): string {
@@ -62,7 +71,7 @@ function currentLane(): string {
   return (branch.stdout ?? '').trim()
 }
 
-function resolveChannel(channels: readonly Channel[], requested: string | undefined): Channel {
+function resolveChannel(channels: readonly Lane[], requested: string | undefined): Lane {
   if (requested !== undefined) {
     const channel = channels.find(entry => entry.slug === requested)
     if (channel === undefined) fail(`unknown channel "${requested}"; known: ${channels.map(entry => entry.slug).join(', ')}`)
@@ -76,10 +85,10 @@ function resolveChannel(channels: readonly Channel[], requested: string | undefi
   return channel
 }
 
-function stampFlags(channel: Channel, product: string): string[] {
+function stampFlags(channel: Lane, application: Application, product: string): string[] {
   return [
-    `--config.productName=${channel.appName}`,
-    `--config.appId=${channel.bundleId}`,
+    `--config.productName=${application.appName}`,
+    `--config.appId=${application.bundleId}`,
     `--config.publish.channel=${channel.feed}`,
     `--config.artifactName=${channel.artifactSlug}-\${version}-\${arch}.\${ext}`,
     `--config.extraMetadata.fitaProduct=${product}`,
@@ -114,8 +123,8 @@ function parseFlags(argv: readonly string[]): Record<string, string | true> {
   return flags
 }
 
-function build(channel: Channel, product: string, version: string, outputDir: string): void {
-  const flags = stampFlags(channel, product)
+function build(channel: Lane, application: Application, product: string, version: string, outputDir: string): void {
+  const flags = stampFlags(channel, application, product)
   const options: MacSmokePackageOptions = {
     env: { ...process.env, FITA_CHANNEL: channel.slug },
     platform: process.platform,
@@ -160,9 +169,9 @@ function build(channel: Channel, product: string, version: string, outputDir: st
     lane: channel.lane,
     product,
     version,
-    appName: channel.appName,
+    appName: application.appName,
     artifactSlug: channel.artifactSlug,
-    bundleId: channel.bundleId,
+    bundleId: application.bundleId,
     feed: channel.feed,
     feedFile,
     accent: channel.accent,
@@ -179,12 +188,12 @@ function build(channel: Channel, product: string, version: string, outputDir: st
 
 function main(argv: readonly string[]): void {
   const flags = parseFlags(argv)
-  const { product, repository, channels } = registry()
+  const { application, product, repository, channels } = registry()
 
   if (flags.list === true) {
     for (const channel of channels) {
       process.stdout.write(
-        `${channel.slug.padEnd(6)} feed=${String(channel.feed).padEnd(6)} app="${channel.appName}" bundle=${channel.bundleId}\n`,
+        `${channel.slug.padEnd(6)} feed=${String(channel.feed).padEnd(6)} app="${application.appName}" bundle=${application.bundleId}\n`,
       )
     }
     return
@@ -200,9 +209,9 @@ function main(argv: readonly string[]): void {
     product,
     repository,
     version,
-    appName: channel.appName,
+    appName: application.appName,
     artifactSlug: channel.artifactSlug,
-    bundleId: channel.bundleId,
+    bundleId: application.bundleId,
     feed: channel.feed,
     accent: channel.accent,
     prerelease: channel.prerelease,
@@ -216,7 +225,7 @@ function main(argv: readonly string[]): void {
   }
 
   console.log(`[fita:${channel.slug}] ${JSON.stringify(planned)}`)
-  build(channel, product, version, outputDir)
+  build(channel, application, product, version, outputDir)
 }
 
 try {

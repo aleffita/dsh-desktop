@@ -201,24 +201,30 @@ export interface DesktopChannelView {
   readonly tag: string
   /** Updater feed name. */
   readonly feed: string
-  /** App bundle name. */
-  readonly appName: string
-  /** Bundle identifier. */
-  readonly bundleId: string
   /** Header accent colour. */
   readonly accent: string
   /** Whether this channel publishes pre-releases. */
   readonly prerelease: boolean
-  /** Install path the local installer uses. */
-  readonly installs: string
   /** One-line description. */
   readonly description: string
   /** Whether the renderer is running inside this channel. */
   readonly current: boolean
 }
 
-/** Every channel this build knows, and which one it is. */
+/** The one application these lanes belong to. */
+export interface DesktopApplicationView {
+  /** Bundle identifier of the single installed application. */
+  readonly bundleId: string
+  /** Name of the single installed application. */
+  readonly appName: string
+  /** Where the local installer puts that application. */
+  readonly installs: string
+}
+
+/** Every lane this build knows, which one it is, and the application they belong to. */
 export interface DesktopChannelsResponse {
+  /** The single application, the same for every lane. */
+  readonly application: DesktopApplicationView
   /** Slug of the running build's channel, or null when this build carries no stamp. */
   readonly current: string | null
   /** Catalogue, in registry order. */
