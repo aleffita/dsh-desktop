@@ -102,6 +102,13 @@ export interface FitaDownloadOptions {
   readonly artifact: { readonly name: string; readonly url: string }
   /** Checksum file published alongside it, when the release carries one. */
   readonly sums: { readonly name: string; readonly url: string } | null
+  /**
+   * Base64 SHA-512 the channel feed records for this file.
+   *
+   * The feed is what says which layer an update is, and it carries this digest; when it is
+   * given, it is the one that is checked and no checksum file is fetched.
+   */
+  readonly expectedSha512?: string
   /** Request adapter, normally Electron's native network session. */
   readonly request: UpdateRequest
   /** Caller-owned cancellation. */
@@ -133,8 +140,11 @@ export async function downloadFitaArtifact(options: FitaDownloadOptions): Promis
   const name = safeFileName(options.artifact.name)
   if (name === null) return { status: 'failed', reason: 'io' }
 
+  const expectedSha512 = options.expectedSha512
   let expected: string | undefined
-  if (options.sums !== null) {
+  if (expectedSha512 !== undefined) {
+    expected = undefined
+  } else if (options.sums !== null) {
     let sumsBody: string
     try {
       const response = await options.request(options.sums.url, {
@@ -176,7 +186,7 @@ export async function downloadFitaArtifact(options: FitaDownloadOptions): Promis
     return { status: 'failed', reason: 'download' }
   }
 
-  const hash = createHash('sha256')
+  const hash = createHash(expectedSha512 === undefined ? 'sha256' : 'sha512')
   const declared = Number(response.headers.get('content-length') ?? Number.NaN)
   if (Number.isFinite(declared) && declared > MAX_ARTIFACT_BYTES) {
     return { status: 'failed', reason: 'too-large' }
@@ -208,8 +218,13 @@ export async function downloadFitaArtifact(options: FitaDownloadOptions): Promis
     return { status: 'failed', reason: written > MAX_ARTIFACT_BYTES ? 'too-large' : 'download' }
   }
 
-  const digest = hash.digest('hex')
-  if (expected !== undefined && digest !== expected) {
+  const digest = hash.digest(expectedSha512 === undefined ? 'hex' : 'base64')
+  if (expectedSha512 !== undefined) {
+    if (digest !== expectedSha512) {
+      await rm(partialPath, { force: true })
+      return { status: 'failed', reason: 'checksum-mismatch' }
+    }
+  } else if (expected !== undefined && digest !== expected) {
     await rm(partialPath, { force: true })
     return { status: 'failed', reason: 'checksum-mismatch' }
   }
@@ -220,18 +235,23 @@ export async function downloadFitaArtifact(options: FitaDownloadOptions): Promis
     return { status: 'failed', reason: 'io' }
   }
   try {
-    // The directory is now something `fita install --from-dir` can install from.
-    await writeFile(
-      join(directory, 'fita-channel.json'),
-      `${JSON.stringify(fitaChannelManifest(options.channel, options.version, name, digest), null, 2)}\n`,
-      { mode: 0o600 },
-    )
+    // The directory is something `fita install --from-dir` can install from only when the
+    // manifest's digest is the SHA-256 that installer checks; a feed-verified download has
+    // a SHA-512 instead, so it is not written as an installable directory.
+    if (expectedSha512 === undefined) {
+      await writeFile(
+        join(directory, 'fita-channel.json'),
+        `${JSON.stringify(fitaChannelManifest(options.channel, options.version, name, digest), null, 2)}\n`,
+        { mode: 0o600 },
+      )
+    }
   } catch {
     // Half a build directory is not installable, so it does not stay behind.
     await rm(finalPath, { force: true })
     return { status: 'failed', reason: 'io' }
   }
-  return expected === undefined
-    ? { status: 'stored', path: finalPath, name, sha256: digest }
-    : { status: 'verified', path: finalPath, name, sha256: digest }
+  const compared = expectedSha512 !== undefined || expected !== undefined
+  return compared
+    ? { status: 'verified', path: finalPath, name, sha256: digest }
+    : { status: 'stored', path: finalPath, name, sha256: digest }
 }

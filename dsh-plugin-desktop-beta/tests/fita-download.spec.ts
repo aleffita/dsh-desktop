@@ -204,3 +204,46 @@ describe('verified download', () => {
     expect((await readdir(join(root, 'beta'))).sort()).toEqual(['beta.dmg', 'fita-channel.json'])
   })
 })
+
+describe('verifying with the digest a channel feed records', () => {
+  const sha512 = createHash('sha512').update(body).digest('base64')
+
+  it('accepts a file whose feed digest matches, without fetching any checksum file', async () => {
+    const root = await cacheRoot()
+    const calls: string[] = []
+    const result = await downloadFitaArtifact({
+      channel: dev,
+      version: '2.0.10-rc.1',
+      cacheRoot: root,
+      artifact: { name: 'DSH-Fita-Dev-2.0.10-rc.1-universal.zip', url: dmgUrl },
+      sums: null,
+      expectedSha512: sha512,
+      request: async (url) => {
+        calls.push(url)
+        return artifactResponse()
+      },
+    })
+
+    expect(result.status).toBe('verified')
+    expect(calls).toEqual([dmgUrl])
+    // A feed-verified download is not an installable directory: the installer checks a
+    // SHA-256 that this path never computed.
+    expect(await readdir(join(root, 'dev'))).toEqual(['DSH-Fita-Dev-2.0.10-rc.1-universal.zip'])
+  })
+
+  it('refuses a file whose feed digest does not match, and leaves nothing behind', async () => {
+    const root = await cacheRoot()
+    const result = await downloadFitaArtifact({
+      channel: dev,
+      version: '2.0.10-rc.1',
+      cacheRoot: root,
+      artifact: { name: 'bad.zip', url: dmgUrl },
+      sums: null,
+      expectedSha512: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=',
+      request: async () => artifactResponse(),
+    })
+
+    expect(result).toEqual({ status: 'failed', reason: 'checksum-mismatch' })
+    expect(await readdir(join(root, 'dev'))).toEqual([])
+  })
+})
