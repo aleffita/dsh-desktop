@@ -1,0 +1,190 @@
+name: Desktop release
+
+# Cuts a distributable DSH Desktop build from this fork and serves it as our own
+# update channel: the DMG and the electron-updater feed file are attached to a
+# GitHub release, and the app built here carries `app-update.yml` pointing at
+# `aleffita/dsh-desktop`. Nothing is published to npm.
+#
+#   stable  a release whose version has no pre-release suffix
+#   rc      a release candidate, e.g. 2.0.10-rc.1, published as a pre-release
+#
+# The version is owned by the repository (`dsh-plugin-desktop/package.json`), so
+# a release is a version bump commit followed by a tag; this workflow verifies
+# that the tag and the committed version agree instead of rewriting either.
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      channel:
+        description: Channel slug for a manual cut
+        type: choice
+        options:
+          - rc
+          - stable
+        default: rc
+
+permissions:
+  contents: write
+
+concurrency:
+  group: desktop-release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  DSH_TELEMETRY_DISABLED: '1'
+
+jobs:
+  macos:
+    name: macOS universal DMG
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+          submodules: recursive
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22.23.2
+      - run: corepack enable
+
+      - name: Resolve Yarn cache folder
+        id: yarn-cache
+        run: echo "dir=$(yarn config get cacheFolder)" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@v6
+        with:
+          path: ${{ steps.yarn-cache.outputs.dir }}
+          key: yarn-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('yarn.lock', '.yarnrc.yml') }}
+      - run: yarn install --immutable
+
+      - name: Resolve release identity
+        id: release
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            version=""
+          else
+            version="${GITHUB_REF_NAME#v}"
+          fi
+          committed="$(node -p "require('./dsh-plugin-desktop/package.json').version")"
+          if [[ -z "$version" ]]; then version="$committed"; fi
+          if [[ "$version" != "$committed" ]]; then
+            echo "::error::version $version (tag/input) does not match the committed Desktop version $committed"
+            exit 1
+          fi
+          channel="${{ inputs.channel || '' }}"
+          if [[ -z "$channel" ]]; then
+            if [[ "$version" == *-* ]]; then channel="rc"; else channel="stable"; fi
+          fi
+          case "$channel" in
+            stable|rc) ;;
+            *) echo "::error::unknown channel $channel"; exit 1 ;;
+          esac
+          if [[ "$channel" == "stable" && "$version" == *-* ]]; then
+            echo "::error::a stable release cannot carry a pre-release version ($version)"; exit 1
+          fi
+          if [[ "$channel" == "rc" && "$version" != *-* ]]; then
+            echo "::error::an rc release needs a pre-release version, for example 2.0.10-rc.1"; exit 1
+          fi
+          {
+            echo "version=$version"
+            echo "channel=$channel"
+            echo "tag=v$version"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Package gate
+        run: yarn workspace dsh-plugin-desktop check:mac-package
+
+      - name: Package the unsigned macOS universal DMG
+        env:
+          DSH_PACKAGE_CHECK_ALREADY_RAN: '1'
+        run: yarn dist:mac-smoke
+
+      - name: Collect release assets
+        id: assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${{ steps.release.outputs.version }}"
+          source="dsh-plugin-desktop/dist/mac-smoke"
+          destination="release-assets"
+          mkdir -p "$destination"
+          slug="DSH-Desktop-${version}-macos-universal"
+          shopt -s nullglob
+          dmg=("$source"/*.dmg)
+          if [[ ${#dmg[@]} -ne 1 ]]; then
+            echo "::error::expected exactly one DMG in $source, found ${#dmg[@]}"
+            exit 1
+          fi
+          cp "${dmg[0]}" "$destination/${slug}.dmg"
+          for blockmap in "$source"/*.dmg.blockmap; do
+            cp "$blockmap" "$destination/${slug}.dmg.blockmap"
+          done
+          # The updater fetches this exact file name from the release; keep it.
+          if [[ -f "$source/latest-mac.yml" ]]; then
+            cp "$source/latest-mac.yml" "$destination/latest-mac.yml"
+            echo "feed=latest-mac.yml" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::electron-builder emitted no latest-mac.yml; the release carries no update feed"
+            echo "feed=" >> "$GITHUB_OUTPUT"
+          fi
+          (cd "$destination" && shasum -a 256 ./* > SHA256SUMS.txt)
+          ls -l "$destination"
+          echo "slug=$slug" >> "$GITHUB_OUTPUT"
+
+      - name: Upload workflow artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ steps.assets.outputs.slug }}
+          path: release-assets/*
+          if-no-files-found: error
+
+      - name: Publish the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.release.outputs.version }}
+          CHANNEL: ${{ steps.release.outputs.channel }}
+          TAG: ${{ steps.release.outputs.tag }}
+          FEED: ${{ steps.assets.outputs.feed }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$CHANNEL" == "rc" ]]; then
+            title="DSH Desktop ${VERSION} — macOS universal · release candidate"
+          else
+            title="DSH Desktop ${VERSION} — macOS universal"
+          fi
+          notes="$(mktemp)"
+          {
+            echo "Unsigned macOS universal build cut from \`develop\` of \`aleffita/dsh-desktop\`."
+            echo
+            echo "| | |"
+            echo "|---|---|"
+            echo "| Version | \`${VERSION}\` |"
+            echo "| Channel | \`${CHANNEL}\` |"
+            echo "| Platform | macOS universal (arm64 + x64) |"
+            echo "| Signing | unsigned, not notarized |"
+            echo "| Update feed | ${FEED:-none} |"
+            echo
+            echo "### Install"
+            echo
+            echo '1. Download the DMG below and drag **DSH Desktop** into `/Applications`.'
+            echo '2. If macOS quarantines it: `xattr -dr com.apple.quarantine "/Applications/DSH Desktop.app"`.'
+            echo '3. The build points its updater at this repository, so later releases here are offered in-app.'
+            echo
+            echo "Artifacts include \`SHA256SUMS.txt\` and, when electron-builder produced it, the electron-updater feed \`latest-mac.yml\`."
+          } > "$notes"
+          args=(--title "$title" --notes-file "$notes")
+          if [[ "$CHANNEL" == "rc" ]]; then args+=(--prerelease); fi
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release edit "$TAG" "${args[@]}"
+            gh release upload "$TAG" release-assets/* --clobber
+          else
+            gh release create "$TAG" release-assets/* "${args[@]}"
+          fi
