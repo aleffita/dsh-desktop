@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { presentChannelCheck, presentChannelDownload } from '../src/client/DesktopFrameTitlebarView.tsx'
+import { presentChannelApply, presentChannelCheck, presentChannelDownload } from '../src/client/DesktopFrameTitlebarView.tsx'
 import { en, zh } from '../src/client/desktop-settings-locales.ts'
 
 const dev = { slug: 'dev', name: 'Dev' }
@@ -86,6 +86,24 @@ describe('prepared build presentation', () => {
 
   it('has copy for the prepare action in both languages', () => {
     for (const key of ['channelPrepare', 'channelPreparing', 'channelPreparedVerified', 'channelPreparedStored', 'channelPrepareFailed'] as const) {
+      expect(en[key]).toBeTruthy()
+      expect(zh[key]).toBeTruthy()
+    }
+  })
+})
+
+describe('applied update presentation', () => {
+  it('says which layer is being applied, and reports a refusal as a failure', () => {
+    expect(presentChannelApply({ status: 'started', channel: 'dev', layer: 'payload' }))
+      .toEqual({ severity: 'note', key: 'channelApplying' })
+    expect(presentChannelApply({ status: 'started', channel: 'dev', layer: 'full' }))
+      .toEqual({ severity: 'note', key: 'channelApplyingFull' })
+    expect(presentChannelApply({ status: 'failed', channel: 'dev', reason: 'no-feed' }))
+      .toEqual({ severity: 'error', key: 'channelApplyFailed' })
+  })
+
+  it('has copy for the apply action in both languages', () => {
+    for (const key of ['channelApply', 'channelApplying', 'channelApplyingFull', 'channelApplyFailed'] as const) {
       expect(en[key]).toBeTruthy()
       expect(zh[key]).toBeTruthy()
     }

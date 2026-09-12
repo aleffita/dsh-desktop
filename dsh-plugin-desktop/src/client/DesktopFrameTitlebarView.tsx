@@ -3,6 +3,7 @@
 import { LayoutTemplate, PanelTop, RefreshCw, Sparkles } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import type {
+  DesktopChannelApply,
   DesktopChannelCheck,
   DesktopChannelDownload,
   DesktopChannelsResponse,
@@ -23,7 +24,7 @@ export interface DesktopFrameTitlebarInjected {
   readonly api: Pick<
     DesktopSettingsApi,
     'openTerminal' | 'restart' | 'restartToRecovery' | 'reloadRenderer' | 'toggleDeveloperTools' | 'checkForUpdates'
-  > & Partial<Pick<DesktopSettingsApi, 'channels' | 'checkChannel' | 'prepareChannel'>>
+  > & Partial<Pick<DesktopSettingsApi, 'channels' | 'checkChannel' | 'prepareChannel' | 'applyChannel'>>
   readonly remoteControl?: { readonly seen: boolean; open(): Promise<void> }
   readonly setMode: (mode: DesktopClientMode) => Promise<void>
 }
@@ -35,6 +36,7 @@ type ChannelOutcome =
   | { readonly kind: 'channel'; readonly result: DesktopChannelCheck }
   | { readonly kind: 'failed' }
   | { readonly kind: 'download'; readonly result: DesktopChannelDownload }
+  | { readonly kind: 'applying'; readonly result: DesktopChannelApply }
 
 export function DesktopVersionControl({
   version,
@@ -42,6 +44,7 @@ export function DesktopVersionControl({
   channels,
   checkChannel,
   prepareChannel,
+  applyChannel,
   t,
 }: {
   readonly version: string
@@ -49,10 +52,12 @@ export function DesktopVersionControl({
   readonly channels?: () => Promise<DesktopChannelsResponse>
   readonly checkChannel?: (channel: string) => Promise<DesktopChannelCheck>
   readonly prepareChannel?: (channel: string) => Promise<DesktopChannelDownload>
+  readonly applyChannel?: (channel: string) => Promise<DesktopChannelApply>
   readonly t: (key: DesktopSettingsLocaleKey) => string
 }) {
   const [checking, setChecking] = useState(false)
   const [preparing, setPreparing] = useState(false)
+  const [applying, setApplying] = useState(false)
   const [outcome, setOutcome] = useState<ChannelOutcome>({ kind: 'idle' })
   const [catalogue, setCatalogue] = useState<DesktopChannelsResponse | undefined>(undefined)
   const [asked, setAsked] = useState<string | undefined>(undefined)
@@ -99,6 +104,17 @@ export function DesktopVersionControl({
       .then(result => { setOutcome({ kind: 'download', result }) })
       .catch(() => { setOutcome({ kind: 'failed' }) })
       .finally(() => { setPreparing(false) })
+  }
+  // Applying is the step that ends this process, so it is offered only for the running
+  // channel and only when a check found something newer there.
+  const canApply = offered && applyChannel !== undefined
+  const runApply = (): void => {
+    if (applying || current === null || applyChannel === undefined) return
+    setApplying(true)
+    void applyChannel(current)
+      .then(result => { setOutcome({ kind: 'applying', result }) })
+      .catch(() => { setOutcome({ kind: 'failed' }) })
+      .finally(() => { setApplying(false) })
   }
   const visibleVersion = `v${version}`
   return (
@@ -157,10 +173,43 @@ export function DesktopVersionControl({
             <span>{t(preparing ? 'channelPreparing' : 'channelPrepare')}</span>
           </Button>
         )}
+        {canApply && (
+          <Button
+            className="dshDesktopVersionCheckButton"
+            disabled={applying}
+            size="sm"
+            variant="outline"
+            onClick={runApply}
+          >
+            <span>{t(applying ? 'channelApplying' : 'channelApply')}</span>
+          </Button>
+        )}
         <ChannelOutcomeLine outcome={outcome} t={t} />
       </HoverCardContent>
     </HoverCard>
   )
+}
+
+/** How starting an applied update is presented, without React. */
+export interface ChannelApplyPresentation {
+  /** Whether the line is an error or information. */
+  readonly severity: 'note' | 'error'
+  /** Locale key to render. */
+  readonly key: DesktopSettingsLocaleKey
+}
+
+/**
+ * Turn a started update into the one line the user sees.
+ *
+ * A started update ends this process, so there is nothing to report afterwards beyond the
+ * layer it turned out to be; a failure keeps the app running and says so.
+ * @param result - outcome of starting to apply an update.
+ * @returns the severity and the copy.
+ */
+export function presentChannelApply(result: DesktopChannelApply): ChannelApplyPresentation {
+  return result.status === 'started'
+    ? { severity: 'note', key: result.layer === 'payload' ? 'channelApplying' : 'channelApplyingFull' }
+    : { severity: 'error', key: 'channelApplyFailed' }
 }
 
 /** How one prepared build is presented, without React. */
@@ -234,6 +283,12 @@ function ChannelOutcomeLine({
   }
   if (outcome.kind === 'upstream') {
     return <span className="dshDesktopVersionCheckNote" role="status">{t('channelNone')}</span>
+  }
+  if (outcome.kind === 'applying') {
+    const applied = presentChannelApply(outcome.result)
+    const className = applied.severity === 'error' ? 'dshDesktopVersionCheckError' : 'dshDesktopVersionCheckNote'
+    const role = applied.severity === 'error' ? 'alert' : 'status'
+    return <span className={className} role={role}>{t(applied.key)}</span>
   }
   if (outcome.kind === 'download') {
     const prepared = presentChannelDownload(outcome.result)
@@ -365,6 +420,7 @@ export function DesktopFrameTitlebarView({ api, environment, setMode, t, remoteC
           {...(api.channels === undefined ? {} : { channels: api.channels })}
           {...(api.checkChannel === undefined ? {} : { checkChannel: api.checkChannel })}
           {...(api.prepareChannel === undefined ? {} : { prepareChannel: api.prepareChannel })}
+          {...(api.applyChannel === undefined ? {} : { applyChannel: api.applyChannel })}
           t={t}
         />
         <DesktopModeControl
