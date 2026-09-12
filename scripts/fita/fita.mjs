@@ -19,7 +19,7 @@ import { spawnSync } from 'node:child_process'
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { homedir, tmpdir } from 'node:os'
-import { dirname, join, resolve } from 'node:path'
+import { basename, dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..')
@@ -44,6 +44,17 @@ function expand(path) {
   return resolve(path.replace(/^~(?=\/|$)/u, homedir()))
 }
 
+/**
+ * Install directory for one channel. `FITA_INSTALL_ROOT` relocates every channel
+ * under a single root, which is how the e2e checks install without touching the
+ * applications the user actually runs.
+ */
+function installPath(channel) {
+  const destination = expand(channel.installs)
+  const root = process.env.FITA_INSTALL_ROOT
+  return root === undefined ? destination : join(resolve(root), basename(destination))
+}
+
 function channelFor(slug) {
   const channel = channels.find(entry => entry.slug === slug)
   if (channel === undefined) fail(`unknown channel "${slug}"; known: ${channels.map(entry => entry.slug).join(', ')}`)
@@ -51,7 +62,7 @@ function channelFor(slug) {
 }
 
 function installedVersion(channel) {
-  const bundle = join(expand(channel.installs), 'Contents', 'Info.plist')
+  const bundle = join(installPath(channel), 'Contents', 'Info.plist')
   if (!existsSync(bundle)) return undefined
   return run('/usr/libexec/PlistBuddy', ['-c', 'Print :CFBundleShortVersionString', bundle])
 }
@@ -96,32 +107,48 @@ function download(url, destination) {
   if (response.status !== 0) fail(`download failed: ${url} (${(response.stderr || '').trim()})`)
 }
 
-function commandInstall(slug, requestedVersion) {
+function commandInstall(slug, requestedVersion, fromDir) {
   const channel = channelFor(slug)
-  const release = tagFor(channel)
-  const version = release.tagName.replace(/^[a-z-]*v/u, '')
-  if (requestedVersion !== undefined && requestedVersion !== version) {
-    fail(`channel ${slug} resolves to ${version}; ${requestedVersion} was requested`)
+  const work = mkdtempSync(join(tmpdir(), `fita-${slug}-`))
+  let dmg
+  let checksumSource
+
+  if (fromDir !== undefined) {
+    const source = resolve(fromDir)
+    const manifestPath = join(source, 'fita-channel.json')
+    if (!existsSync(manifestPath)) fail(`${source} carries no fita-channel.json; build the channel first`)
+    const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'))
+    if (manifest.channel !== channel.slug) fail(`${source} is the ${manifest.channel} build, not ${channel.slug}`)
+    dmg = join(source, manifest.dmg)
+    if (!existsSync(dmg)) fail(`missing ${manifest.dmg} in ${source}`)
+    const sums = join(source, 'SHA256SUMS.txt')
+    if (existsSync(sums)) checksumSource = sums
+    else writeFileSync(join(work, 'SHA256SUMS.txt'), `${manifest.dmgSha256}  ${manifest.dmg}\n`)
+    if (checksumSource === undefined) checksumSource = join(work, 'SHA256SUMS.txt')
+    process.stdout.write(`fita: installing ${manifest.dmg} from ${source}\n`)
+  } else {
+    const release = tagFor(channel)
+    const version = release.tagName.replace(/^[a-z-]*v/u, '')
+    if (requestedVersion !== undefined && requestedVersion !== version) {
+      fail(`channel ${slug} resolves to ${version}; ${requestedVersion} was requested`)
+    }
+    const dmgAsset = release.assets.find(asset => asset.name.endsWith('.dmg'))
+    if (dmgAsset === undefined) fail(`release ${release.tagName} has no DMG asset`)
+    const sumsAsset = release.assets.find(asset => asset.name === 'SHA256SUMS.txt')
+    dmg = join(work, dmgAsset.name)
+    process.stdout.write(`fita: downloading ${dmgAsset.name} from ${release.tagName}\n`)
+    download(`https://github.com/${registry.repository}/releases/download/${release.tagName}/${encodeURIComponent(dmgAsset.name)}`, dmg)
+    if (sumsAsset !== undefined) {
+      checksumSource = join(work, 'SHA256SUMS.txt')
+      download(`https://github.com/${registry.repository}/releases/download/${release.tagName}/SHA256SUMS.txt`, checksumSource)
+    }
   }
 
-  const dmgAsset = release.assets.find(asset => asset.name.endsWith('.dmg'))
-  if (dmgAsset === undefined) fail(`release ${release.tagName} has no DMG asset`)
-  const sumsAsset = release.assets.find(asset => asset.name === 'SHA256SUMS.txt')
-
-  const work = mkdtempSync(join(tmpdir(), `fita-${slug}-`))
-  const dmg = join(work, dmgAsset.name)
-  process.stdout.write(`fita: downloading ${dmgAsset.name} from ${release.tagName}\n`)
-  download(`https://github.com/${registry.repository}/releases/download/${release.tagName}/${encodeURIComponent(dmgAsset.name)}`, dmg)
-
-  if (sumsAsset !== undefined) {
-    const sums = join(work, 'SHA256SUMS.txt')
-    download(`https://github.com/${registry.repository}/releases/download/${release.tagName}/SHA256SUMS.txt`, sums)
-    const expected = readFileSync(sums, 'utf8')
-      .split('\n')
-      .find(line => line.trim().endsWith(dmgAsset.name))
+  if (checksumSource !== undefined) {
+    const expected = readFileSync(checksumSource, 'utf8').split('\n').find(line => line.trim().endsWith(basename(dmg)))
     if (expected !== undefined) {
       const actual = run('shasum', ['-a', '256', dmg]).split(/\s+/u)[0]
-      if (actual !== expected.trim().split(/\s+/u)[0]) fail(`checksum mismatch for ${dmgAsset.name}`)
+      if (actual !== expected.trim().split(/\s+/u)[0]) fail(`checksum mismatch for ${basename(dmg)}`)
       process.stdout.write('fita: checksum verified\n')
     }
   }
@@ -131,7 +158,7 @@ function commandInstall(slug, requestedVersion) {
   try {
     const candidates = run('find', [mount, '-maxdepth', '1', '-name', '*.app']).split('\n').filter(Boolean)
     if (candidates.length !== 1) fail(`expected one app in the DMG, found ${candidates.length}`)
-    const destination = join(expand(channel.installs))
+    const destination = installPath(channel)
     rmSync(destination, { recursive: true, force: true })
     run('mkdir', ['-p', dirname(destination)])
     run('ditto', [candidates[0], destination])
@@ -145,14 +172,14 @@ function commandInstall(slug, requestedVersion) {
 
 function commandUse(slug) {
   const channel = channelFor(slug)
-  const destination = join(expand(channel.installs))
+  const destination = installPath(channel)
   if (!existsSync(destination)) fail(`${channel.appName} is not installed; run: yarn fita install ${slug}`)
   run('open', ['-a', destination])
 }
 
 function commandUninstall(slug) {
   const channel = channelFor(slug)
-  rmSync(join(expand(channel.installs)), { recursive: true, force: true })
+  rmSync(installPath(channel), { recursive: true, force: true })
   process.stdout.write(`fita: removed ${channel.appName}\n`)
 }
 
@@ -171,7 +198,7 @@ function main(argv) {
     case 'status': return commandStatus()
     case 'install': {
       const slug = positional[0] ?? fail('install needs a channel slug')
-      return commandInstall(slug, typeof flags.version === 'string' ? flags.version : undefined)
+      return commandInstall(slug, typeof flags.version === 'string' ? flags.version : undefined, typeof flags['from-dir'] === 'string' ? flags['from-dir'] : undefined)
     }
     case 'use': return commandUse(positional[0] ?? fail('use needs a channel slug'))
     case 'uninstall': return commandUninstall(positional[0] ?? fail('uninstall needs a channel slug'))
