@@ -1,8 +1,8 @@
 /** Independent Desktop frame portalled above the upstream content viewport. */
 
 import { LayoutTemplate, PanelTop, RefreshCw, Sparkles } from 'lucide-react'
-import { useState } from 'react'
-import type { DesktopSettingsApi } from './desktop-settings-api.ts'
+import { useEffect, useState } from 'react'
+import type { DesktopChannelCheck, DesktopChannelsResponse, DesktopSettingsApi } from './desktop-settings-api.ts'
 import type { DesktopClientEnvironment, DesktopClientMode } from './environment.ts'
 import { DesktopNativeActions } from './DesktopNativeActions.tsx'
 import { Button } from '../native-ui/components/ui/button.tsx'
@@ -18,28 +18,55 @@ export interface DesktopFrameTitlebarInjected {
   readonly api: Pick<
     DesktopSettingsApi,
     'openTerminal' | 'restart' | 'restartToRecovery' | 'reloadRenderer' | 'toggleDeveloperTools' | 'checkForUpdates'
-  >
+  > & Partial<Pick<DesktopSettingsApi, 'channels' | 'checkChannel'>>
   readonly remoteControl?: { readonly seen: boolean; open(): Promise<void> }
   readonly setMode: (mode: DesktopClientMode) => Promise<void>
 }
 
+/** What the last check of the running channel answered. */
+type ChannelOutcome =
+  | { readonly kind: 'idle' }
+  | { readonly kind: 'upstream' }
+  | { readonly kind: 'channel'; readonly result: DesktopChannelCheck }
+  | { readonly kind: 'failed' }
+
 export function DesktopVersionControl({
   version,
   checkForUpdates,
+  channels,
+  checkChannel,
   t,
 }: {
   readonly version: string
   readonly checkForUpdates: () => Promise<void>
+  readonly channels?: () => Promise<DesktopChannelsResponse>
+  readonly checkChannel?: (channel: string) => Promise<DesktopChannelCheck>
   readonly t: (key: DesktopSettingsLocaleKey) => string
 }) {
   const [checking, setChecking] = useState(false)
-  const [failed, setFailed] = useState(false)
+  const [outcome, setOutcome] = useState<ChannelOutcome>({ kind: 'idle' })
+  const [catalogue, setCatalogue] = useState<DesktopChannelsResponse | undefined>(undefined)
+  useEffect(() => {
+    if (channels === undefined) return
+    let active = true
+    void channels()
+      .then((response) => { if (active) setCatalogue(response) })
+      .catch(() => { if (active) setCatalogue(undefined) })
+    return () => { active = false }
+  }, [channels])
+  const current = catalogue?.current ?? null
+  const running = catalogue?.channels.find(channel => channel.slug === current)
   const runCheck = (): void => {
     if (checking) return
     setChecking(true)
-    setFailed(false)
-    void checkForUpdates()
-      .catch(() => { setFailed(true) })
+    setOutcome({ kind: 'idle' })
+    // A stamped build asks its own channel; an unstamped one keeps the upstream
+    // check, because we have no channel to ask on its behalf.
+    const task = current !== null && checkChannel !== undefined
+      ? checkChannel(current).then(result => { setOutcome({ kind: 'channel', result }) })
+      : checkForUpdates().then(() => { setOutcome({ kind: 'upstream' }) })
+    void task
+      .catch(() => { setOutcome({ kind: 'failed' }) })
       .finally(() => { setChecking(false) })
   }
   const visibleVersion = `v${version}`
@@ -52,11 +79,16 @@ export function DesktopVersionControl({
         aria-label={`${t('currentVersion')} ${visibleVersion}`}
       >
         {visibleVersion}
+        {running !== undefined && <span className="dshDesktopFrameChannel"> {running.name}</span>}
       </HoverCardTrigger>
       <HoverCardContent className="dshDesktopVersionPopover">
         <div className="dshDesktopVersionPopoverHeader">
           <span>{t('currentVersion')}</span>
           <strong>{visibleVersion}</strong>
+        </div>
+        <div className="dshDesktopVersionPopoverChannel">
+          <span>{t('channelLabel')}</span>
+          <strong>{running?.name ?? t('channelUnknown')}</strong>
         </div>
         <Button
           className="dshDesktopVersionCheckButton"
@@ -68,9 +100,66 @@ export function DesktopVersionControl({
           <RefreshCw aria-hidden="true" />
           <span>{t(checking ? 'checkingForUpdates' : 'checkForUpdates')}</span>
         </Button>
-        {failed && <span className="dshDesktopVersionCheckError" role="alert">{t('checkForUpdatesError')}</span>}
+        <ChannelOutcomeLine outcome={outcome} t={t} />
       </HoverCardContent>
     </HoverCard>
+  )
+}
+
+/** How one channel check is presented, without React. */
+export interface ChannelCheckPresentation {
+  /** Whether the line is an error or information. */
+  readonly severity: 'note' | 'error'
+  /** Locale key to render. */
+  readonly key: DesktopSettingsLocaleKey
+  /** Version to append, when the message is about one. */
+  readonly version?: string
+}
+
+/**
+ * Turn a channel check into the one line the user sees.
+ * @param result - outcome of checking one channel.
+ * @returns the severity, the copy, and a version when there is one.
+ */
+export function presentChannelCheck(result: DesktopChannelCheck): ChannelCheckPresentation {
+  if (result.status === 'none') return { severity: 'note', key: 'channelNone' }
+  if (result.status === 'failed') {
+    const keys = {
+      request: 'channelFailedRequest',
+      response: 'channelFailedResponse',
+      malformed: 'channelFailedMalformed',
+      'unknown-channel': 'channelFailedUnknown',
+    } as const satisfies Record<typeof result.reason, DesktopSettingsLocaleKey>
+    return { severity: 'error', key: keys[result.reason] }
+  }
+  if (!result.newer) return { severity: 'note', key: 'channelUpToDate' }
+  return { severity: 'note', key: 'channelNewer', version: result.version }
+}
+
+/** Report exactly what the last check found, including "could not tell". */
+function ChannelOutcomeLine({
+  outcome,
+  t,
+}: {
+  readonly outcome: ChannelOutcome
+  readonly t: (key: DesktopSettingsLocaleKey) => string
+}) {
+  if (outcome.kind === 'idle') return null
+  if (outcome.kind === 'failed') {
+    return <span className="dshDesktopVersionCheckError" role="alert">{t('checkForUpdatesError')}</span>
+  }
+  if (outcome.kind === 'upstream') {
+    return <span className="dshDesktopVersionCheckNote" role="status">{t('channelNone')}</span>
+  }
+  const presentation = presentChannelCheck(outcome.result)
+  const className = presentation.severity === 'error' ? 'dshDesktopVersionCheckError' : 'dshDesktopVersionCheckNote'
+  const role = presentation.severity === 'error' ? 'alert' : 'status'
+  return (
+    <span className={className} role={role}>
+      {presentation.version === undefined
+        ? t(presentation.key)
+        : `${t(presentation.key)} v${presentation.version}`}
+    </span>
   )
 }
 
@@ -176,7 +265,13 @@ export function DesktopFrameTitlebarView({ api, environment, setMode, t, remoteC
     >
       <div className="dshDesktopFrameIdentity">
         <span className="dshDesktopFrameProduct">DSH Desktop</span>
-        <DesktopVersionControl version={environment.version} checkForUpdates={api.checkForUpdates} t={t} />
+        <DesktopVersionControl
+          version={environment.version}
+          checkForUpdates={api.checkForUpdates}
+          {...(api.channels === undefined ? {} : { channels: api.channels })}
+          {...(api.checkChannel === undefined ? {} : { checkChannel: api.checkChannel })}
+          t={t}
+        />
         <DesktopModeControl
           mode={environment.mode}
           setMode={setMode}

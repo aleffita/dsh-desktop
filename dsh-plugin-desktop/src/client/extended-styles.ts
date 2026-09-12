@@ -226,6 +226,31 @@ body[data-dsh-desktop-mode="extended"]:not([data-dsh-desktop-material="off"]) {
   font-size: 11px;
   line-height: 1.4;
 }
+.dshDesktopVersionCheckNote {
+  color: var(--dsw-alias-label-secondary);
+  font-size: 11px;
+  line-height: 1.4;
+}
+/* The running channel rides beside the version, dimmer than it. */
+.dshDesktopFrameChannel {
+  color: var(--dsw-alias-label-secondary);
+  font-size: 10px;
+  letter-spacing: .02em;
+  text-transform: none;
+}
+.dshDesktopVersionPopoverChannel {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 11px;
+}
+.dshDesktopVersionPopoverChannel strong {
+  color: var(--dsw-alias-label-primary);
+  font-size: 12px;
+  font-weight: 600;
+}
 .dshDesktopFrameMode {
   display: inline-flex;
   align-items: center;
