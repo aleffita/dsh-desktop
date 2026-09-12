@@ -1,5 +1,6 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type { DesktopRendererAccessHeader } from './desktop-browser-access.ts'
+import type { FitaChannel } from './fita-channel.ts'
 import type { RendererBootReport } from './renderer-boot-contract.ts'
 import type { DesktopReleaseChannel, UpdateCheckResult, UpdateRequest } from './update-checker.ts'
 import type { DesktopInstallationId } from './desktop-installation-id.ts'
@@ -108,6 +109,14 @@ export interface DesktopUpdateAdapter {
   readonly currentVersion: string
   /** Release stream selected by this packaged product. Legacy adapters default to stable. */
   readonly releaseChannel?: DesktopReleaseChannel
+  /** Channel this build was stamped with, when it is one of ours. */
+  readonly fitaChannel?: FitaChannel
+  /**
+   * Leave, in order, so a started hand-over can replace this bundle.
+   *
+   * Not a restart: the child the app started is what relaunches, after it has installed.
+   */
+  readonly quitForHandover?: () => Promise<void>
   /** Private file used to suppress repeated background update announcements. */
   readonly statePath: string
   /** Pseudonymous installation UUID attached only to the fixed version endpoint. */

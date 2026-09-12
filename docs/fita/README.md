@@ -25,7 +25,7 @@ is the only thing that may ever leave the fork, one isolated commit set at a tim
 | Channels and branding | channel registry, colour-coded `FITA` chip, version subtitle, `DSH Fita` product name | dev | landed |
 | Per-channel packaging | stamp `productName`, `bundleId` and updater feed per channel so installs stand side by side | dev | landed |
 | Install manager | `yarn fita install/use/status`, verified downloads, no manual copying | dev | landed |
-| Update channels UI | in-app updater: check, choose channel, download, apply, report state | dev, later beta | next |
+| Update channels UI | in-app updater: check, choose channel, download, apply, report state | dev, later beta | landed |
 | GitHub Packages | publish our scoped plugin packages to our registry | dev | queued |
 | Marketplace source | our fork as a marketplace source, with an `alefita's choices` bundle YAML consumed by onboarding and plugin settings | dev | queued |
 | Planning plugin | kanban board in the Harness itself: backlog, epics/projects/tasks hierarchy, tags, provenance, related sessions, colours, agent skills; local storage first, git-authored, read-only without git | dev | queued |
@@ -34,6 +34,12 @@ is the only thing that may ever leave the fork, one isolated commit set at a tim
 | Remote access as forward | remote clients see the same board and sessions | dev | after 1–5 |
 | Sync | pluggable sync, Google Drive OAuth first, provenance preserved | dev | after 1–5 |
 | Upstream reconciliation | scheduled merge of upstream `master` into `dev`, logged | dev | recipe documented |
+
+The update UI is two layers on purpose: the payload (the zip a channel publishes, which
+replaces `app.asar` and keeps the previous one for rollback) and the full install (the DMG).
+The channel's feed decides which one an update is, never a heuristic in the app. `yarn
+fita:verify-update` proves the chain offline — feed, layer choice, verified download, payload
+swap with the runtime untouched — and `yarn fita:verify-prepared` proves the full-install path.
 
 "Landed" means the slice's evidence is in `docs/fita/INSTALLS.md` and `CHANNELS.md`, its e2e
 runs locally, and it entered `dev` through a pull request. "Next" is the only slice that may

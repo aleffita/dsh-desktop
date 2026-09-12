@@ -58,6 +58,7 @@ import {
 import type { UpdateCheckResult } from './update-checker.ts'
 import type { DesktopInstallationId } from './desktop-installation-id.ts'
 import { DESKTOP_RELEASE_CHANNEL } from './product-identity.ts'
+import { readRunningFitaChannel } from './fita-build.ts'
 import type { DesktopReleaseChannel } from './update-checker.ts'
 import {
   type WindowsVolumeQuery,
@@ -139,11 +140,20 @@ export class ElectronDesktopRuntime implements DesktopRuntime {
       logError: message => { this.logError(message) },
       ...(workspaceVolumeQuery === undefined ? {} : { volumeQuery: workspaceVolumeQuery }),
     })
+    // The stamp cannot change while the process runs, so it is read once.
+    const fitaChannel = readRunningFitaChannel()
     this.updates = {
       get isPackaged() { return app.isPackaged },
       get canDownload() { return app.isPackaged && platformStrategy.updateDownloadPlatform !== undefined },
       get currentVersion() { return PRODUCT_VERSION },
       get releaseChannel() { return DESKTOP_RELEASE_CHANNEL },
+      ...(fitaChannel === undefined ? {} : { fitaChannel }),
+      quitForHandover: async () => {
+        const spec = this.scheduled
+        if (spec === undefined) throw new Error('dsh-plugin-desktop: no active shell can exit for an update')
+        this.quitting = true
+        spec.requestQuit(0)
+      },
       get statePath() { return join(app.getPath('userData'), 'updates', 'state.json') },
       ...(installationId === undefined ? {} : { installationId }),
       request: (url, init) => net.fetch(url, init),

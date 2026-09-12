@@ -34,6 +34,12 @@ export interface MacSmokePackageOptions {
   readonly builderCli: string
   /** Absolute packaged-DMG verification script. */
   readonly verifier: string
+  /**
+   * electron-builder targets to produce, in order. A channel needs both: the `dmg` for
+   * a full install and the `zip`, which is the artifact an Electron app updates itself
+   * from on macOS. Defaults to the DMG-only smoke target.
+   */
+  readonly macTargets?: readonly string[]
   /** Node executable used to run package-local scripts. */
   readonly nodeExecutable: string
   /** Execute one packaging command. */
@@ -131,7 +137,7 @@ export function packageMacSmoke(options: MacSmokePackageOptions = defaultOptions
     [
       options.builderCli,
       '--mac',
-      'dmg',
+      ...(options.macTargets ?? ['dmg']),
       '--universal',
       '--publish',
       'never',

@@ -152,6 +152,42 @@ html, body, #root { background: transparent; font-size: 13px; }
   font-size: 11px;
   line-height: 1.4;
 }
+.dshDesktopVersionCheckNote {
+  color: var(--dsw-alias-label-secondary);
+  font-size: 11px;
+  line-height: 1.4;
+}
+/* The running channel rides beside the version, dimmer than it. */
+.dshDesktopFrameChannel {
+  color: var(--dsw-alias-label-secondary);
+  font-size: 10px;
+  letter-spacing: .02em;
+  text-transform: none;
+}
+.dshDesktopVersionPopoverChannel {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 11px;
+}
+.dshDesktopVersionChannelSelect {
+  max-width: 140px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--dsw-alias-label-primary);
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+}
+.dshDesktopVersionPopoverChannel strong {
+  color: var(--dsw-alias-label-primary);
+  font-size: 12px;
+  font-weight: 600;
+}
 .dshDesktopFrameMode {
   display: inline-flex;
   align-items: center;

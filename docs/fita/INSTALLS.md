@@ -107,3 +107,59 @@ this table separates what exists from what it will become:
 
 The loop it becomes: land on a lane → tag the lane → the pipeline publishes that channel's
 release → `yarn fita install <channel>` or the running app's updater picks it up.
+
+## The in-app update flow, and where it stops
+
+The app follows the same contract as the installer, one step at a time:
+
+1. **Identify.** The running build reads its own stamped channel (see `CHANNELS.md`). A build
+   with no stamp is not ours to update and keeps the upstream check.
+2. **Check.** `POST /api/desktop/updates/channel-check` asks that channel's releases and answers
+   `offer`, `none`, or `failed` with a named reason. The titlebar shows whichever it got —
+   "could not tell" is never rendered as "up to date".
+3. **Prepare.** `POST /api/desktop/updates/channel-download` downloads the build into
+   `<userData>/updates/channels/<slug>/` and compares its SHA-256 with the release's
+   `SHA256SUMS.txt`. The answer says what was proven: `verified`, or `stored` when the release
+   published no checksums.
+4. **Apply.** Convergence with the installer rather than a second install mechanism: the app's
+   cache directory *is* a directory `fita install --from-dir` understands, because the app writes
+   the `fita-channel.json` the installer reads from facts it has just verified (channel, version,
+   DMG name, `dmgSha256`). Proven end to end and offline:
+
+   ```sh
+   yarn fita:verify-prepared --channel=dev
+   fita-prepared: ok — a cache prepared like the app's installed DSH Fita Dev 2.0.9 side by side
+   ```
+
+   That script builds the cache directory exactly as the app does — the app's own
+   `fitaChannelManifest`, with the channel's real DMG hard-linked rather than copied — runs
+   `fita install --from-dir` against it into a scratch install root, and checks the installed
+   app's `CFBundleIdentifier` and version.
+
+   The hand-over is where the remaining work is, and the decision is taken: the app installs the
+   build itself — `src/fita-install.ts` mounts the verified DMG read-only, `ditto`s the app it
+   carries and clears the quarantine flag — and it reuses the flag this codebase already has for
+   exactly this situation. `DESKTOP_INSTALLER_QUIT_FLAG` (`--dsh-installer-quit`,
+   `src/desktop-installer-quit.ts`) exists because a launcher or installer replaces the bundle
+   while the app is not running. So the choreography left is: spawn the installing step detached,
+   have it wait for this process to exit, install, relaunch — then quit.
+
+   The manager stays the reference path either way: `yarn fita:verify-prepared` is the contract
+   the app's own installing step must satisfy, and it does, because both end up producing a
+   directory the installer accepts and an app with the channel's own bundle identifier.
+
+### The update flow, proven offline
+
+`yarn fita:verify-update` runs the whole chain against a synthetic release it serves over
+loopback — a real `dev-mac.yml` and the real zip that feed names — and then applies it to a
+throwaway bundle:
+
+```
+fita-update: feed chose the payload layer: DSH-Fita-Dev-9.9.9-universal.zip
+fita-update: started the hand-over for payload, verified against the feed digest
+fita-update: ok — the update flow reached the bundle: payload replaced, previous kept, runtime untouched
+```
+
+That is real HTTP, a real zip, real `ditto` extraction and a real payload swap: the app's
+`app.asar` becomes the new payload, the previous one stays beside it for rollback, and
+`electron.asar` — the runtime, which a payload update must never touch — is unchanged.

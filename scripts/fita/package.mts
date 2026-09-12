@@ -132,6 +132,9 @@ function build(channel: Channel, product: string, version: string, outputDir: st
     },
     builderCli: desktopRequire.resolve('electron-builder/cli.js'),
     verifier: fileURLToPath(new URL('./verify-channel.mts', import.meta.url)),
+    // Both layers of an update: the DMG for a full install, the zip for the app to
+    // update its own payload without one.
+    macTargets: ['dmg', 'zip'],
     nodeExecutable: process.execPath,
     run: (command, args, cwd, env) => {
       const decorated = args[0] === options.builderCli ? [...args, ...flags] : [...args]
@@ -146,6 +149,10 @@ function build(channel: Channel, product: string, version: string, outputDir: st
 
   const dmg = readdirSync(outputDir).find(name => name.endsWith('.dmg'))
   if (dmg === undefined) fail(`no DMG produced in ${outputDir}`)
+  // The zip is the artifact an Electron app updates its own payload from; without it a
+  // channel can only be installed, never updated in place.
+  const zip = readdirSync(outputDir).find(name => name.endsWith('.zip'))
+  if (zip === undefined) fail(`no zip produced in ${outputDir}`)
   const feedFile = existsSync(join(outputDir, `${channel.feed}-mac.yml`)) ? `${channel.feed}-mac.yml` : undefined
   const manifest = {
     channel: channel.slug,
@@ -162,6 +169,8 @@ function build(channel: Channel, product: string, version: string, outputDir: st
     prerelease: channel.prerelease,
     dmg,
     dmgSha256: sha256(join(outputDir, dmg)),
+    zip,
+    zipSha256: sha256(join(outputDir, zip)),
     electronBuilderFlags: flags,
   }
   writeFileSync(join(outputDir, 'fita-channel.json'), `${JSON.stringify(manifest, null, 2)}\n`)

@@ -18,6 +18,7 @@ import {
   DESKTOP_RELEASE_CHANNEL_HEADER,
   type UpdateCheckResult,
 } from '../src/update-checker.ts'
+import { DESKTOP_UPDATE_CHECK_PATH } from '../src/desktop-settings-contract.ts'
 import { apply, Config, inject, type Config as UpdateConfig } from '../src/updates.ts'
 
 const testConfig: UpdateConfig = {
@@ -46,6 +47,7 @@ interface Harness {
     request: ConnectionTrustRequest,
   ) => ConnectionRequestRejection>>
   readonly route: WebRoute
+  readonly routes: ReadonlyMap<string, WebRoute>
   dispose(): Promise<void>
 }
 
@@ -81,7 +83,7 @@ async function createHarness(options: {
   ) => ConnectionRequestRejection>(() => undefined)
   let tray: DesktopTrayItem | undefined
   const trays: DesktopTrayItem[] = []
-  let route: WebRoute | undefined
+  const routes = new Map<string, WebRoute>()
   let disposer: (() => void | Promise<void>) | undefined
   const runtime = {
     locale: options.locale ?? 'en',
@@ -108,7 +110,7 @@ async function createHarness(options: {
     webServer: {
       port: 43120,
       register: (registered: WebRoute) => {
-        route = registered
+        routes.set(registered.path, registered)
         return () => {}
       },
     },
@@ -122,6 +124,7 @@ async function createHarness(options: {
 
   apply(ctx, options.config ?? testConfig)
   if (tray === undefined) throw new Error('Update tray item was not registered.')
+  const route = routes.get(DESKTOP_UPDATE_CHECK_PATH)
   if (route === undefined) throw new Error('Update route was not registered.')
   return {
     statePath,
@@ -136,6 +139,7 @@ async function createHarness(options: {
     registrationDispose,
     requestRejection,
     route,
+    routes,
     dispose: async () => { await disposer?.() },
   }
 }

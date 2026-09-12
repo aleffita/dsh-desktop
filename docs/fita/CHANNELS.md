@@ -64,6 +64,7 @@ description of what was actually built, and consumers read it instead of re-deri
 | `feed`, `feedFile` | `dev`, `dev-mac.yml` | workflow, updater |
 | `accent`, `prerelease` | `#FF4D9D`, `true` | header, workflow |
 | `dmg`, `dmgSha256` | `DSH-Fita-Dev-2.0.9-universal.dmg`, `…` | installer, e2e |
+| `zip`, `zipSha256` | `DSH-Fita-Dev-2.0.9-universal.zip`, `…` | the in-app update payload layer |
 | `electronBuilderFlags` | the stamped flags | whoever debugs a build |
 
 The channel verifier runs *before* the manifest is written, so a build that cannot prove
@@ -108,3 +109,117 @@ Consequences for the program, in order:
    the app reaches its own version endpoint instead — so this is latent, not broken. Our
    updater must scope its download/cache paths by channel rather than inherit the shared
    name.
+
+## How a running build knows its channel
+
+Two halves, both generated from the registry so a channel is declared once:
+
+**The stamp.** `fita:package` passes `--config.extraMetadata.fitaProduct|fitaChannel|fitaFeed`,
+so the packaged `package.json` carries the channel. Verified on the dev build by reading
+`Contents/Resources/app.asar/package.json` back out of the DMG:
+
+```
+name: dsh-plugin-desktop | version: 2.0.9
+fitaProduct: DSH Fita | fitaChannel: dev | fitaFeed: dev
+```
+
+That is the app's own answer to "which channel am I", read through the same
+`new URL('../package.json', import.meta.url)` the version already comes from. There is no
+second source and no guessing: a build without the stamp — upstream's, or one made before the
+registry existed — is reported as *unknown*, and the app must not offer it another channel's
+release.
+
+**The catalogue.** The packaged app cannot read `fita/channels.yml`, so
+`scripts/fita/channels-module.mts` freezes it into `src/fita-channels.generated.ts` in **both**
+editions (`yarn fita:channels`), and `yarn check:fita-channels` — part of `check:layout` —
+fails when the committed module and the YAML disagree. `src/fita-channel.ts` is the only
+reader: `fitaChannel(slug)` looks a channel up, `readFitaBuildIdentity(manifest)` reads the
+stamp, `runningFitaChannel(manifest)` resolves the two together and returns undefined rather
+than a wrong channel. `tests/fita-channel.spec.ts` holds the invariants: unique
+slug/`bundleId`/`appName`/`artifactSlug`/`installs`, well-formed accents and install paths, and
+the refusal to resolve an undeclared slug.
+
+So adding a channel stays a one-file change: declare it in `fita/channels.yml`, run
+`yarn fita:channels`, and both the pipeline and the app see it.
+
+## Asking that channel for a build
+
+`src/fita-release.ts` decides, from a release listing alone, which release a channel should
+offer: `fitaTagPattern` compiles the registry's `tag` pattern into an anchored matcher whose
+last group is the version, selection refuses drafts and other lanes' tags, and a stable channel
+never offers a prerelease — the tag pattern `v*` alone would let `v2.0.10-rc.1` into `main`,
+which is the rule the upstream download path already enforces. The DMG has to carry both the
+channel's `artifactSlug` and the requested version, so the wrong build cannot be installed by
+accident, and `fitaExpectedChecksum` reads one digest out of the release's `SHA256SUMS.txt`.
+
+`src/fita-release-source.ts` is the network half: it reads the listing of the repository the
+registry names and answers with one of three states — `offer` (version, release, DMG,
+checksums), `none` (the channel has published nothing eligible), or `failed` with a named
+reason (`request`, `response`, `malformed`). A channel check that could not complete is never
+reported as "up to date", because that is the one wrong answer a user cannot detect.
+
+### What the renderer sees
+
+Two routes, both registered by the `desktop-updates` plugin and both behind the same loopback
+and same-origin rules as the rest of the settings API:
+
+| route | body | answer |
+| --- | --- | --- |
+| `GET /api/desktop/updates/channels` | none | `{ current, channels[] }` — the catalogue in registry order, each entry marked with `current: true` for the running build; `current` is null when this build carries no stamp |
+| `POST /api/desktop/updates/channel-check` | `{ "channel": "<slug>" }` | the three states above, projected into renderer-safe shapes: artifact names and URLs, no host objects |
+| `POST /api/desktop/updates/channel-download` | `{ "channel": "<slug>" }` | downloads that channel's build and verifies it: `verified` (digest compared with the release's `SHA256SUMS.txt`), `stored` (the release published no checksums, so nothing more may be claimed), or `failed` with a named reason. The renderer names a channel, never a URL or a version. |
+
+An undeclared slug is *answered*, not rejected: `{ "status": "failed", "reason":
+"unknown-channel" }` lets the UI say what happened instead of showing a generic error, and the
+Host never has to guess what the caller meant. A check that throws is a 500 with the cause
+logged — the same fail-closed shape as the interactive update route.
+
+Downloads land under `<userData>/updates/channels/<slug>/` — one directory per channel.
+electron-builder's `updaterCacheDirName` derives from the package name, so every channel would
+otherwise share one path and two channels updating at once would fight over it.
+
+## Two update layers, and why the feed alone decides
+
+Not every update is a new DMG. An Electron app has two payloads: the code payload
+(`Contents/Resources/app.asar`, plus `app.asar.unpacked` for native modules) and the full
+bundle. Replacing the code payload is cheap and needs no install; replacing the Electron
+runtime, the native modules or the resources needs the whole bundle. Measured on the dev build:
+
+```
+app.asar              173 MB
+app.asar.unpacked      54 MB   (node-pty, sharp, ripgrep, fs-ext, koffi)
+DMG                   278 MB   (the compressed bundle)
+```
+
+What a channel publishes, measured on the dev build after the zip target was added:
+
+```yaml
+# dev-mac.yml
+version: 2.0.9
+files:
+  - url: DSH-Fita-Dev-2.0.9-universal.zip   # 269 MB — the layer an app updates itself from
+    sha512: C6l5IaYNuNBLAWdYk8xY7cQe6N629tt9Mu877WCXSDm7R4dxYoK2vzpm3skEPwCrBNnYg95CrjuaURSrYEWTfQ==
+    size: 269199071
+  - url: DSH-Fita-Dev-2.0.9-universal.dmg   # 279 MB — the full install
+    sha512: ZNIQEG93P75AyG3ND/IefMF/pMMBVQ/KBr/thWpbDrESoojJJyOIJ3In/GJFtov3agd+6bl+E2FR+tDcH3VHLw==
+    size: 278573399
+path: DSH-Fita-Dev-2.0.9-universal.zip
+```
+
+Both artifacts ship with a blockmap (`*.zip.blockmap`, `*.dmg.blockmap`), so the delta layer
+exists for the light one, and `fita-channel.json` records `zip` and `zipSha256` beside the DMG's,
+with the digest equal to `shasum -a 256` of the file on disk.
+
+Before the zip target a channel had **no in-app update artifact at all**: the feed named one
+file, and it was the DMG. electron-updater's macOS path expects a `zip` for that job — the DMG is
+the manual install — so per-channel packaging emits both targets:
+
+| layer | artifact | touches | used when |
+| --- | --- | --- | --- |
+| code payload | `zip` (plus its blockmap, so a delta can be fetched) | `app.asar`, and anything that changed inside it | the Electron runtime and native modules are unchanged |
+| full bundle | `dmg` (already built) | everything, including natives and resources | natives, resources or the runtime changed; or no usable delta base |
+
+Both layers share the same per-channel verification (sha512 from the channel's feed), the same
+per-channel cache, and the same hand-over: nothing is swapped while the app runs. The layer
+decision belongs to the feed, not to a heuristic in the app — if the feed's file list carries a
+payload we can apply, that is the update; if it only carries the DMG, the DMG is the update.

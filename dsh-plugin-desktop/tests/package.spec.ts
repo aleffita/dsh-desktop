@@ -514,7 +514,8 @@ describe('published package surface', () => {
     const exitCoordinator = main.indexOf('createDesktopExitCoordinator(')
     const ready = main.indexOf('await app.whenReady()')
     const markClean = main.indexOf('desktopRun?.markClean()')
-    const nativeExit = main.indexOf('app.exit(code)')
+    // The app's own exit must go through the coordinator.
+    const nativeExit = main.indexOf('app.exit(code)', exitCoordinator)
 
     expect(startCrashReporter).toBeGreaterThanOrEqual(0)
     expect(beginRun).toBeGreaterThan(startCrashReporter)
@@ -523,6 +524,16 @@ describe('published package surface', () => {
     expect(nativeExit).toBeGreaterThan(exitCoordinator)
     expect(markClean).toBeGreaterThan(nativeExit)
     expect(ready).toBeGreaterThan(markClean)
+
+    // One deliberate exception, and only one: the hand-over process replaces this bundle,
+    // so it has to run before the single-instance lock the app being replaced still holds —
+    // earlier than the coordinator exists. It is still an exit in a named place, and it
+    // must stay inside that branch.
+    const handoverExit = main.indexOf('app.exit(code)')
+    const handoverRun = main.indexOf('runFitaHandoverProcess(')
+    const lock = main.indexOf('requestSingleInstanceLock')
+    expect(handoverExit).toBeGreaterThan(handoverRun)
+    expect(handoverExit).toBeLessThan(lock)
   })
 
   it('creates unified Profile checkpoints before composition and records only after health', () => {
