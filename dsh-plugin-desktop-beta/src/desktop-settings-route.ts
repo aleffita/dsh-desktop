@@ -5,7 +5,11 @@ import { assertDesktopProfileName } from './profile-manager.ts'
 import type { DesktopMarketProvider } from './desktop-market.ts'
 import type DesktopSettingsController from './desktop-settings-controller.ts'
 import type { DesktopSettingsPostResponse } from './desktop-settings-controller.ts'
+import { fitaChannel, FITA_CHANNELS, type FitaChannel } from './fita-channel.ts'
+import type { FitaChannelCheck } from './fita-release-source.ts'
 import type {
+  DesktopChannelCheckResponse,
+  DesktopChannelsResponse,
   DesktopMarketSelectRequest,
   DesktopProfileCreateRequest,
   DesktopProfileDeleteRequest,
@@ -500,3 +504,88 @@ export async function handleDesktopDiagnosticsExportRequest(
 export const desktopSettingsRouteConstants = Object.freeze({
   maxBodyBytes: MAX_SETTINGS_BODY_BYTES,
 })
+
+/**
+ * Describe the channels this build knows and which one it is.
+ * @param req - incoming request.
+ * @param res - response to finish.
+ * @param expectedOrigin - loopback origin every settings request must match.
+ * @param current - channel this build was stamped with, when it is one of ours.
+ */
+export function handleDesktopChannelsRequest(
+  req: IncomingMessage,
+  res: ServerResponse,
+  expectedOrigin: string,
+  current: FitaChannel | undefined,
+): void {
+  if (req.method !== 'GET') return finishJson(res, 405, error('method not allowed'), 'GET')
+  if (!isSameOriginLoopbackRequest(req, expectedOrigin, false)) {
+    return finishJson(res, 403, error('forbidden'))
+  }
+  const response: DesktopChannelsResponse = {
+    current: current?.slug ?? null,
+    channels: FITA_CHANNELS.map(channel => ({ ...channel, current: channel.slug === current?.slug })),
+  }
+  finishJson(res, 200, response)
+}
+
+/** Project one channel check into the renderer-safe contract. */
+function channelCheckResponse(result: FitaChannelCheck, channel: FitaChannel): DesktopChannelCheckResponse {
+  if (result.status === 'none') return { status: 'none', channel: channel.slug }
+  if (result.status === 'failed') return { status: 'failed', channel: channel.slug, reason: result.reason }
+  return {
+    status: 'offer',
+    channel: channel.slug,
+    version: result.version,
+    newer: result.newer,
+    dmg: result.dmg === undefined
+      ? null
+      : { name: result.dmg.name, url: result.dmg.browser_download_url },
+    sums: result.sums === undefined
+      ? null
+      : { name: result.sums.name, url: result.sums.browser_download_url },
+  }
+}
+
+/**
+ * Ask one declared channel whether it offers a newer build.
+ *
+ * An undeclared slug is answered, not rejected: the renderer gets a named failure
+ * it can show, and the Host never has to guess what the caller meant.
+ * @param req - incoming request.
+ * @param res - response to finish.
+ * @param expectedOrigin - loopback origin every settings request must match.
+ * @param check - channel check implementation, bound to the Host generation.
+ * @param reportError - sink for unexpected failures.
+ */
+export async function handleDesktopChannelCheckRequest(
+  req: IncomingMessage,
+  res: ServerResponse,
+  expectedOrigin: string,
+  check: (channel: FitaChannel) => Promise<FitaChannelCheck>,
+  reportError: (operation: string, cause: unknown) => void = () => {},
+): Promise<void> {
+  if (req.method !== 'POST') return finishJson(res, 405, error('method not allowed'), 'POST')
+  if (!isSameOriginLoopbackRequest(req, expectedOrigin, true)) {
+    return finishJson(res, 403, error('forbidden'))
+  }
+  const value = await parsePostBody(req, res)
+  if (value === INVALID_BODY) return
+  const slug = typeof value === 'object' && value !== null
+    ? (value as { channel?: unknown }).channel
+    : undefined
+  if (typeof slug !== 'string' || slug.length === 0) {
+    return finishJson(res, 400, error('invalid channel check request'))
+  }
+  const channel = fitaChannel(slug)
+  if (channel === undefined) {
+    const response: DesktopChannelCheckResponse = { status: 'failed', channel: slug, reason: 'unknown-channel' }
+    return finishJson(res, 200, response)
+  }
+  try {
+    finishJson(res, 200, channelCheckResponse(await check(channel), channel))
+  } catch (cause) {
+    reportError('check a channel', cause)
+    finishJson(res, 500, error('the channel could not be checked'))
+  }
+}

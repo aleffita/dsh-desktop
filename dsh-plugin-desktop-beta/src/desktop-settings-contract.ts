@@ -37,6 +37,12 @@ export const DESKTOP_DEVELOPER_TOOLS_TOGGLE_PATH = '/api/desktop/developer/devto
 /** Run the generation-owned manual update check. */
 export const DESKTOP_UPDATE_CHECK_PATH = '/api/desktop/updates/check'
 
+/** Read the channels this build knows and which one it is. */
+export const DESKTOP_CHANNELS_PATH = '/api/desktop/updates/channels'
+
+/** Ask one channel whether it offers a newer build. */
+export const DESKTOP_CHANNEL_CHECK_PATH = '/api/desktop/updates/channel-check'
+
 /** Export one local diagnostic archive through the launcher-owned flow. */
 export const DESKTOP_DIAGNOSTICS_EXPORT_PATH = '/api/desktop/diagnostics/export'
 
@@ -176,6 +182,83 @@ export type DesktopUpdateCheckRequest = Readonly<Record<string, never>>
 export interface DesktopUpdateCheckResponse {
   readonly accepted: true
 }
+
+/** One channel as the renderer may see it, with no host references. */
+export interface DesktopChannelView {
+  /** Registry slug. */
+  readonly slug: string
+  /** Human channel name. */
+  readonly name: string
+  /** Git lane that produces this channel's builds. */
+  readonly lane: string
+  /** Tag pattern the release workflow accepts. */
+  readonly tag: string
+  /** Updater feed name. */
+  readonly feed: string
+  /** App bundle name. */
+  readonly appName: string
+  /** Bundle identifier. */
+  readonly bundleId: string
+  /** Header accent colour. */
+  readonly accent: string
+  /** Whether this channel publishes pre-releases. */
+  readonly prerelease: boolean
+  /** Install path the local installer uses. */
+  readonly installs: string
+  /** One-line description. */
+  readonly description: string
+  /** Whether the renderer is running inside this channel. */
+  readonly current: boolean
+}
+
+/** Every channel this build knows, and which one it is. */
+export interface DesktopChannelsResponse {
+  /** Slug of the running build's channel, or null when this build carries no stamp. */
+  readonly current: string | null
+  /** Catalogue, in registry order. */
+  readonly channels: readonly DesktopChannelView[]
+}
+
+/** Exact body accepted by the per-channel check endpoint. */
+export interface DesktopChannelCheckRequest {
+  /** Registry slug to check. */
+  readonly channel: string
+}
+
+/** One downloadable file offered by a channel. */
+export interface DesktopChannelArtifact {
+  /** Published file name. */
+  readonly name: string
+  /** Direct download URL. */
+  readonly url: string
+}
+
+/** Outcome of checking one channel. */
+export type DesktopChannelCheckResponse =
+  | {
+    readonly status: 'offer'
+    /** Channel that was checked. */
+    readonly channel: string
+    /** Version the channel currently publishes. */
+    readonly version: string
+    /** Whether that version is newer than the running build. */
+    readonly newer: boolean
+    /** The build to download, when the release carries one. */
+    readonly dmg: DesktopChannelArtifact | null
+    /** The checksum file to verify it with, when the release carries one. */
+    readonly sums: DesktopChannelArtifact | null
+  }
+  | { readonly status: 'none'; readonly channel: string }
+  | {
+    readonly status: 'failed'
+    /** Channel that was checked. */
+    readonly channel: string
+    /** Which step failed: transport, response, payload, or an undeclared channel. */
+    readonly reason: DesktopChannelCheckOutcomeFailure
+  }
+
+/** Reasons a channel check can fail, as the renderer may see them. */
+export type DesktopChannelCheckOutcomeFailure = 'request' | 'response' | 'malformed' | 'unknown-channel'
 
 /** Exact empty body accepted by the diagnostic-export endpoint. */
 export type DesktopDiagnosticsExportRequest = Readonly<Record<string, never>>

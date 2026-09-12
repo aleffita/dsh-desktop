@@ -156,3 +156,18 @@ registry names and answers with one of three states — `offer` (version, releas
 checksums), `none` (the channel has published nothing eligible), or `failed` with a named
 reason (`request`, `response`, `malformed`). A channel check that could not complete is never
 reported as "up to date", because that is the one wrong answer a user cannot detect.
+
+### What the renderer sees
+
+Two routes, both registered by the `desktop-updates` plugin and both behind the same loopback
+and same-origin rules as the rest of the settings API:
+
+| route | body | answer |
+| --- | --- | --- |
+| `GET /api/desktop/updates/channels` | none | `{ current, channels[] }` — the catalogue in registry order, each entry marked with `current: true` for the running build; `current` is null when this build carries no stamp |
+| `POST /api/desktop/updates/channel-check` | `{ "channel": "<slug>" }` | the three states above, projected into renderer-safe shapes: artifact names and URLs, no host objects |
+
+An undeclared slug is *answered*, not rejected: `{ "status": "failed", "reason":
+"unknown-channel" }` lets the UI say what happened instead of showing a generic error, and the
+Host never has to guess what the caller meant. A check that throws is a 500 with the cause
+logged — the same fail-closed shape as the interactive update route.
