@@ -88,6 +88,14 @@ export type FitaUpdateLayer =
   | { readonly layer: 'full'; readonly file: FitaFeedFile }
   | { readonly layer: 'none'; readonly reason: 'not-this-channel' }
 
+/**
+ * A layer an update can actually be applied as.
+ *
+ * `none` is an answer, not a layer: it never reaches the step that downloads and applies,
+ * so that step takes this narrower type and cannot be handed a decision it cannot act on.
+ */
+export type FitaChosenLayer = Extract<FitaUpdateLayer, { readonly layer: 'payload' | 'full' }>
+
 /** A file belongs to this channel when its name carries the channel's artifact slug. */
 function ownedByChannel(file: FitaFeedFile, channel: FitaChannel): boolean {
   return file.url.startsWith(`${channel.artifactSlug}-`)

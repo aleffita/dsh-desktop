@@ -10,7 +10,7 @@
 
 import { FITA_REGISTRY_REPOSITORY } from './fita-channels.generated.ts'
 import type { FitaChannel } from './fita-channel.ts'
-import { parseFitaFeed, fitaUpdateLayer, type FitaUpdateLayer } from './fita-feed.ts'
+import { parseFitaFeed, fitaUpdateLayer, type FitaChosenLayer } from './fita-feed.ts'
 import {
   fitaChannelAvailability,
   fitaReleaseDmg,
@@ -228,7 +228,7 @@ export interface FitaFeedReadOptions {
  * @param options - feed URL, channel and request adapter.
  * @returns the layer and file, or undefined when the feed cannot answer.
  */
-export async function readFitaChannelFeed(options: FitaFeedReadOptions): Promise<FitaUpdateLayer | undefined> {
+export async function readFitaChannelFeed(options: FitaFeedReadOptions): Promise<FitaChosenLayer | undefined> {
   let response: Response
   try {
     response = await options.request(options.url, {
