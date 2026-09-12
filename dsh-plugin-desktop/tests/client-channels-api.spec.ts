@@ -9,6 +9,11 @@ import {
 } from '../src/client/desktop-settings-api.ts'
 
 const catalogue = {
+  application: {
+    bundleId: 'dev.aleffita.dsh-harness',
+    appName: 'DSH Harness',
+    installs: '~/Applications/DSH Harness.app',
+  },
   current: 'dev',
   channels: [
     {
@@ -17,11 +22,8 @@ const catalogue = {
       lane: 'master',
       tag: 'v*',
       feed: 'latest',
-      appName: 'DSH Fita',
-      bundleId: 'ai.deepseek.dsh.desktop',
       accent: '#1F6FEB',
       prerelease: false,
-      installs: '~/Applications/DSH Fita.app',
       description: 'Upstream mirror.',
       current: false,
     },
@@ -31,11 +33,8 @@ const catalogue = {
       lane: 'dev',
       tag: 'dev-v*',
       feed: 'dev',
-      appName: 'DSH Fita Dev',
-      bundleId: 'ai.deepseek.dsh.desktop.dev',
       accent: '#FF4D9D',
       prerelease: true,
-      installs: '~/Applications/DSH Fita Dev.app',
       description: 'Our mainline.',
       current: true,
     },
@@ -55,7 +54,10 @@ describe('channel catalogue parsing', () => {
   })
 
   it('accepts a build that belongs to no channel', () => {
-    expect(parseDesktopChannelsResponse({ current: null, channels: [] }).current).toBeNull()
+    // The application is always there, even for a build that belongs to no lane.
+    const empty = parseDesktopChannelsResponse({ ...catalogue, current: null, channels: [] })
+    expect(empty.current).toBeNull()
+    expect(empty.application.appName).toBe('DSH Harness')
   })
 
   it('refuses a catalogue the host would never send', () => {

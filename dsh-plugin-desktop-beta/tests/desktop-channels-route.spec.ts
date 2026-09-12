@@ -45,12 +45,18 @@ describe('channel catalogue route', () => {
   it('describes every channel and marks the running one', async () => {
     const { res, body, status } = response()
     await handleDesktopChannelsRequest(postRequest({}), res, origin, dev)
-    const payload = body() as { current: string; channels: { slug: string; current: boolean; bundleId: string }[] }
+    const payload = body() as {
+      application: { bundleId: string; appName: string }
+      current: string
+      channels: { slug: string; current: boolean }[]
+    }
     expect(status()).toBe(200)
     expect(payload.current).toBe('dev')
     expect(payload.channels.map(channel => channel.slug)).toEqual(['main', 'beta', 'dev', 'pr'])
     expect(payload.channels.filter(channel => channel.current).map(channel => channel.slug)).toEqual(['dev'])
-    expect(payload.channels[0]?.bundleId).toBe('ai.deepseek.dsh.desktop')
+    // One application, the same for every lane: the identity is not a lane property.
+    expect(payload.application.bundleId).toBe('dev.aleffita.dsh-harness')
+    expect(payload.application.appName).toBe('DSH Harness')
   })
 
   it('reports a build with no stamp as belonging to no channel', async () => {
