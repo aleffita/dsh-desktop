@@ -3,6 +3,7 @@ import {
   createDesktopSettingsApi,
   desktopSettingsPaths,
   parseDesktopChannelCheck,
+  parseDesktopChannelApply,
   parseDesktopChannelDownload,
   parseDesktopChannelsResponse,
 } from '../src/client/desktop-settings-api.ts'
@@ -167,5 +168,34 @@ describe('channel download parsing', () => {
       desktopSettingsPaths.channelDownload,
       expect.objectContaining({ method: 'POST' }),
     )
+  })
+})
+
+describe('channel apply parsing and call', () => {
+  it('keeps the layer an applied update turned out to be', () => {
+    expect(parseDesktopChannelApply({ status: 'started', channel: 'dev', layer: 'payload' }))
+      .toEqual({ status: 'started', channel: 'dev', layer: 'payload' })
+    expect(parseDesktopChannelApply({ status: 'started', channel: 'dev', layer: 'full' }))
+      .toMatchObject({ layer: 'full' })
+  })
+
+  it('keeps each named failure', () => {
+    for (const reason of ['no-feed', 'unverifiable', 'checksum-mismatch', 'io'] as const) {
+      expect(parseDesktopChannelApply({ status: 'failed', channel: 'dev', reason }))
+        .toEqual({ status: 'failed', channel: 'dev', reason })
+    }
+  })
+
+  it('refuses an unknown layer, an unknown reason and a missing channel', () => {
+    expect(() => parseDesktopChannelApply({ status: 'started', channel: 'dev', layer: 'delta' })).toThrow()
+    expect(() => parseDesktopChannelApply({ status: 'failed', channel: 'dev', reason: 'aliens' })).toThrow()
+    expect(() => parseDesktopChannelApply({ status: 'failed', reason: 'io' })).toThrow()
+  })
+
+  it('posts the channel it was asked to apply', async () => {
+    const fetcher = jsonFetcher({ status: 'started', channel: 'dev', layer: 'payload' })
+    const api = createDesktopSettingsApi(fetcher as never)
+    await expect(api.applyChannel('dev')).resolves.toMatchObject({ status: 'started' })
+    expect(fetcher).toHaveBeenCalledWith(desktopSettingsPaths.channelApply, expect.objectContaining({ method: 'POST' }))
   })
 })

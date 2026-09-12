@@ -15,6 +15,7 @@ const UPDATE_CHECK_PATH = '/api/desktop/updates/check'
 const CHANNELS_PATH = '/api/desktop/updates/channels'
 const CHANNEL_CHECK_PATH = '/api/desktop/updates/channel-check'
 const CHANNEL_DOWNLOAD_PATH = '/api/desktop/updates/channel-download'
+const CHANNEL_APPLY_PATH = '/api/desktop/updates/channel-apply'
 const DIAGNOSTICS_EXPORT_PATH = '/api/desktop/diagnostics/export'
 const MAX_PROFILES = 256
 const MAX_PROFILE_NAME_LENGTH = 255
@@ -89,6 +90,7 @@ export interface DesktopSettingsApi {
   channels(): Promise<DesktopChannelsResponse>
   checkChannel(channel: string): Promise<DesktopChannelCheck>
   prepareChannel(channel: string): Promise<DesktopChannelDownload>
+  applyChannel(channel: string): Promise<DesktopChannelApply>
   exportDiagnostics(): Promise<void>
 }
 
@@ -170,6 +172,29 @@ export type DesktopChannelDownloadFailure =
   | 'checksum-mismatch'
   | 'too-large'
   | 'io'
+
+/** Reasons applying a channel update can fail, as the UI may word them. */
+export type DesktopChannelApplyFailure =
+  | 'unknown-channel'
+  | 'no-release'
+  | 'no-feed'
+  | 'unverifiable'
+  | 'download'
+  | 'checksum-missing'
+  | 'checksum-mismatch'
+  | 'too-large'
+  | 'io'
+
+/** Outcome of starting to apply a channel's update. */
+export type DesktopChannelApply =
+  | {
+    readonly status: 'started'
+    /** Channel whose update is being applied. */
+    readonly channel: string
+    /** Layer the update turned out to be. */
+    readonly layer: 'payload' | 'full'
+  }
+  | { readonly status: 'failed'; readonly channel: string; readonly reason: DesktopChannelApplyFailure }
 
 /** Outcome of preparing a channel's build. */
 export type DesktopChannelDownload =
@@ -464,6 +489,28 @@ export function parseDesktopChannelCheck(value: unknown): DesktopChannelCheck {
   })
 }
 
+/** Parse the outcome of starting to apply one channel's update. */
+export function parseDesktopChannelApply(value: unknown): DesktopChannelApply {
+  if (!isObject(value) || typeof value.channel !== 'string' || typeof value.status !== 'string') {
+    throw new Error('dsh-plugin-desktop: invalid Desktop channel apply response')
+  }
+  if (value.status === 'failed') {
+    const reasons: readonly DesktopChannelApplyFailure[] = [
+      'unknown-channel', 'no-release', 'no-feed', 'unverifiable', 'download',
+      'checksum-missing', 'checksum-mismatch', 'too-large', 'io',
+    ]
+    const reason = value.reason
+    if (!reasons.includes(reason as DesktopChannelApplyFailure)) {
+      throw new Error('dsh-plugin-desktop: invalid Desktop channel apply failure')
+    }
+    return Object.freeze({ status: 'failed' as const, channel: value.channel, reason: reason as DesktopChannelApplyFailure })
+  }
+  if (value.status !== 'started' || (value.layer !== 'payload' && value.layer !== 'full')) {
+    throw new Error('dsh-plugin-desktop: invalid Desktop channel apply response')
+  }
+  return Object.freeze({ status: 'started' as const, channel: value.channel, layer: value.layer })
+}
+
 /** Parse the outcome of preparing one channel's build. */
 export function parseDesktopChannelDownload(value: unknown): DesktopChannelDownload {
   if (!isObject(value) || typeof value.status !== 'string') {
@@ -568,6 +615,9 @@ export function createDesktopSettingsApi(fetcher: FetchLike = globalThis.fetch.b
     async prepareChannel(channel: string) {
       return parseDesktopChannelDownload(await readResponse(await post(fetcher, CHANNEL_DOWNLOAD_PATH, { channel })))
     },
+    async applyChannel(channel: string) {
+      return parseDesktopChannelApply(await readResponse(await post(fetcher, CHANNEL_APPLY_PATH, { channel })))
+    },
     async exportDiagnostics() {
       parseDesktopActionAcceptance(await readResponse(await post(fetcher, DIAGNOSTICS_EXPORT_PATH, {})))
     },
@@ -589,5 +639,6 @@ export const desktopSettingsPaths = Object.freeze({
   channels: CHANNELS_PATH,
   channelCheck: CHANNEL_CHECK_PATH,
   channelDownload: CHANNEL_DOWNLOAD_PATH,
+  channelApply: CHANNEL_APPLY_PATH,
   diagnosticsExport: DIAGNOSTICS_EXPORT_PATH,
 })
