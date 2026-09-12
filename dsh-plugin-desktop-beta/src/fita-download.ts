@@ -13,7 +13,7 @@
 
 import { createHash } from 'node:crypto'
 import { createWriteStream } from 'node:fs'
-import { mkdir, rename, rm } from 'node:fs/promises'
+import { mkdir, rename, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { FitaChannel } from './fita-channel.ts'
 import { fitaExpectedChecksum } from './fita-release.ts'
@@ -58,10 +58,44 @@ export type FitaDownloadResult =
   }
   | { readonly status: 'failed'; readonly reason: FitaDownloadFailure }
 
+/** The facts `fita install --from-dir` reads from a build directory. */
+export interface FitaChannelManifest {
+  /** Registry slug the build belongs to. */
+  readonly channel: string
+  /** Version that was downloaded. */
+  readonly version: string
+  /** Published DMG name, relative to the directory. */
+  readonly dmg: string
+  /** Digest the DMG was verified against, or the one computed when none was published. */
+  readonly dmgSha256: string
+}
+
+/**
+ * Build the manifest the local installer reads.
+ *
+ * The app has just verified these facts, so it can hand the installer a directory it
+ * already understands instead of inventing a second install path.
+ * @param channel - channel that published the build.
+ * @param version - version that was downloaded.
+ * @param name - published DMG name.
+ * @param sha256 - digest the file carries.
+ * @returns the manifest to write beside the DMG.
+ */
+export function fitaChannelManifest(
+  channel: FitaChannel,
+  version: string,
+  name: string,
+  sha256: string,
+): FitaChannelManifest {
+  return { channel: channel.slug, version, dmg: name, dmgSha256: sha256 }
+}
+
 /** Inputs for one artifact download. */
 export interface FitaDownloadOptions {
   /** Channel that published the artifact. */
   readonly channel: FitaChannel
+  /** Version the artifact belongs to, recorded for the installer. */
+  readonly version: string
   /** Directory that holds every channel's cached builds. */
   readonly cacheRoot: string
   /** File name as published by the release. */
@@ -183,6 +217,18 @@ export async function downloadFitaArtifact(options: FitaDownloadOptions): Promis
     await rename(partialPath, finalPath)
   } catch {
     await rm(partialPath, { force: true })
+    return { status: 'failed', reason: 'io' }
+  }
+  try {
+    // The directory is now something `fita install --from-dir` can install from.
+    await writeFile(
+      join(directory, 'fita-channel.json'),
+      `${JSON.stringify(fitaChannelManifest(options.channel, options.version, name, digest), null, 2)}\n`,
+      { mode: 0o600 },
+    )
+  } catch {
+    // Half a build directory is not installable, so it does not stay behind.
+    await rm(finalPath, { force: true })
     return { status: 'failed', reason: 'io' }
   }
   return expected === undefined

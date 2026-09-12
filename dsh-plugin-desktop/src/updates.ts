@@ -147,6 +147,7 @@ export function apply(ctx: Context, config: Config): void {
       if (check.dmg === undefined) return { status: 'failed', channel: channel.slug, reason: 'no-artifact' }
       const result = await downloadFitaArtifact({
         channel,
+        version: check.version,
         cacheRoot,
         artifact: { name: check.dmg.name, url: check.dmg.browser_download_url },
         sums: check.sums === undefined ? null : { name: check.sums.name, url: check.sums.browser_download_url },

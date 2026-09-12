@@ -4,7 +4,11 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { fitaChannel } from '../src/fita-channel.ts'
-import { downloadFitaArtifact, fitaChannelCacheDir } from '../src/fita-download.ts'
+import {
+  downloadFitaArtifact,
+  fitaChannelCacheDir,
+  fitaChannelManifest,
+} from '../src/fita-download.ts'
 
 const dev = fitaChannel('dev')!
 const beta = fitaChannel('beta')!
@@ -37,6 +41,17 @@ function requestFor(handlers: Record<string, () => Response | Promise<Response>>
 const dmgUrl = 'https://example.test/DSH-Fita-Dev-2.0.10.dmg'
 const sumsUrl = 'https://example.test/SHA256SUMS.txt'
 
+describe('installer manifest', () => {
+  it('records the four facts the local installer reads', () => {
+    expect(fitaChannelManifest(dev, '2.0.10-rc.1', 'a.dmg', 'ab'.repeat(32))).toEqual({
+      channel: 'dev',
+      version: '2.0.10-rc.1',
+      dmg: 'a.dmg',
+      dmgSha256: 'ab'.repeat(32),
+    })
+  })
+})
+
 describe('channel cache layout', () => {
   it('gives every channel its own directory', () => {
     expect(fitaChannelCacheDir('/cache', dev)).toBe('/cache/dev')
@@ -50,6 +65,7 @@ describe('verified download', () => {
     const root = await cacheRoot()
     const result = await downloadFitaArtifact({
       channel: dev,
+      version: '2.0.10-rc.1',
       cacheRoot: root,
       artifact: { name: 'DSH-Fita-Dev-2.0.10.dmg', url: dmgUrl },
       sums: { name: 'SHA256SUMS.txt', url: sumsUrl },
@@ -66,13 +82,21 @@ describe('verified download', () => {
     })
     if (result.status !== 'verified') return
     expect(await readFile(result.path)).toEqual(Buffer.from(body))
-    expect(await readdir(join(root, 'dev'))).toEqual(['DSH-Fita-Dev-2.0.10.dmg'])
+    expect((await readdir(join(root, 'dev'))).sort()).toEqual(['DSH-Fita-Dev-2.0.10.dmg', 'fita-channel.json'])
+    // The directory is now installable by the local installer, which reads these four.
+    expect(JSON.parse(await readFile(join(root, 'dev', 'fita-channel.json'), 'utf8'))).toEqual({
+      channel: 'dev',
+      version: '2.0.10-rc.1',
+      dmg: 'DSH-Fita-Dev-2.0.10.dmg',
+      dmgSha256: digest,
+    })
   })
 
   it('refuses a file whose checksum does not match, and leaves nothing behind', async () => {
     const root = await cacheRoot()
     const result = await downloadFitaArtifact({
       channel: dev,
+      version: '2.0.10-rc.1',
       cacheRoot: root,
       artifact: { name: 'DSH-Fita-Dev-2.0.10.dmg', url: dmgUrl },
       sums: { name: 'SHA256SUMS.txt', url: sumsUrl },
@@ -89,6 +113,7 @@ describe('verified download', () => {
     const root = await cacheRoot()
     const result = await downloadFitaArtifact({
       channel: dev,
+      version: '2.0.10-rc.1',
       cacheRoot: root,
       artifact: { name: 'DSH-Fita-Dev-2.0.10.dmg', url: dmgUrl },
       sums: { name: 'SHA256SUMS.txt', url: sumsUrl },
@@ -101,6 +126,7 @@ describe('verified download', () => {
     const root = await cacheRoot()
     const downloadFailed = await downloadFitaArtifact({
       channel: dev,
+      version: '2.0.10-rc.1',
       cacheRoot: root,
       artifact: { name: 'a.dmg', url: dmgUrl },
       sums: null,
@@ -110,6 +136,7 @@ describe('verified download', () => {
 
     const sumsUnavailable = await downloadFitaArtifact({
       channel: dev,
+      version: '2.0.10-rc.1',
       cacheRoot: root,
       artifact: { name: 'a.dmg', url: dmgUrl },
       sums: { name: 'SHA256SUMS.txt', url: sumsUrl },
@@ -122,6 +149,7 @@ describe('verified download', () => {
     const root = await cacheRoot()
     const notFound = await downloadFitaArtifact({
       channel: dev,
+      version: '2.0.10-rc.1',
       cacheRoot: root,
       artifact: { name: 'a.dmg', url: dmgUrl },
       sums: null,
@@ -131,6 +159,7 @@ describe('verified download', () => {
 
     const escaping = await downloadFitaArtifact({
       channel: dev,
+      version: '2.0.10-rc.1',
       cacheRoot: root,
       artifact: { name: '../escaped.dmg', url: dmgUrl },
       sums: null,
@@ -143,6 +172,7 @@ describe('verified download', () => {
     const root = await cacheRoot()
     const result = await downloadFitaArtifact({
       channel: dev,
+      version: '2.0.10-rc.1',
       cacheRoot: root,
       artifact: { name: 'huge.dmg', url: dmgUrl },
       sums: null,
@@ -162,6 +192,7 @@ describe('verified download', () => {
     const root = await cacheRoot()
     const result = await downloadFitaArtifact({
       channel: beta,
+      version: '2.0.10-rc.1',
       cacheRoot: root,
       artifact: { name: 'beta.dmg', url: dmgUrl },
       sums: null,
@@ -170,6 +201,6 @@ describe('verified download', () => {
     expect(result.status).toBe('stored')
     if (result.status !== 'stored') return
     expect(result.sha256).toBe(digest)
-    expect(await readdir(join(root, 'beta'))).toEqual(['beta.dmg'])
+    expect((await readdir(join(root, 'beta'))).sort()).toEqual(['beta.dmg', 'fita-channel.json'])
   })
 })
