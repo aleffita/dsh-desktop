@@ -138,3 +138,13 @@ The app follows the same contract as the installer, one step at a time:
 
    What the app still owes is the hand-over: telling the user the build is ready and quitting so
    the install manager can replace the bundle, which is the only part it cannot do to itself.
+
+   That hand-over needs one decision before code: the install manager is a repository script
+   (`scripts/fita/fita.mjs`), and a packaged app cannot run it. Either the plugin ships an
+   install entry point of its own, or the app performs the two steps the manager performs for a
+   cached directory — mount the verified DMG read-only, `ditto` the app into
+   `~/Applications/<appName>.app`, clear the quarantine flag — and then relaunches. The second
+   keeps the app self-contained at the cost of duplicating that logic; the first keeps one
+   implementation at the cost of shipping the manager inside the bundle. Whichever is chosen, the
+   manager stays the reference path (`yarn fita:verify-prepared` is the contract both must
+   satisfy).
