@@ -147,3 +147,19 @@ The app follows the same contract as the installer, one step at a time:
    The manager stays the reference path either way: `yarn fita:verify-prepared` is the contract
    the app's own installing step must satisfy, and it does, because both end up producing a
    directory the installer accepts and an app with the channel's own bundle identifier.
+
+### The update flow, proven offline
+
+`yarn fita:verify-update` runs the whole chain against a synthetic release it serves over
+loopback — a real `dev-mac.yml` and the real zip that feed names — and then applies it to a
+throwaway bundle:
+
+```
+fita-update: feed chose the payload layer: DSH-Fita-Dev-9.9.9-universal.zip
+fita-update: started the hand-over for payload, verified against the feed digest
+fita-update: ok — the update flow reached the bundle: payload replaced, previous kept, runtime untouched
+```
+
+That is real HTTP, a real zip, real `ditto` extraction and a real payload swap: the app's
+`app.asar` becomes the new payload, the previous one stays beside it for rollback, and
+`electron.asar` — the runtime, which a payload update must never touch — is unchanged.
