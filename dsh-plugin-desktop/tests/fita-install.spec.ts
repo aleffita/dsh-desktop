@@ -1,0 +1,130 @@
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { installFitaPreparedBuild, type FitaCommandResult } from '../src/fita-install.ts'
+
+const roots: string[] = []
+function scratch(): string {
+  const root = mkdtempSync(join(tmpdir(), 'fita-install-spec-'))
+  roots.push(root)
+  return root
+}
+
+afterEach(() => {
+  for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true })
+})
+
+/** A runner that answers like a DMG carrying one app, recording every call. */
+function dmgRunner(appNames: readonly string[]): {
+  run: (command: string, args: readonly string[]) => FitaCommandResult
+  calls: [string, readonly string[]][]
+} {
+  const calls: [string, readonly string[]][] = []
+  const run = (command: string, args: readonly string[]): FitaCommandResult => {
+    calls.push([command, args])
+    if (command === 'hdiutil' && args[0] === 'attach') {
+      const mount = args[args.indexOf('-mountpoint') + 1] as string
+      for (const name of appNames) mkdirSync(join(mount, name), { recursive: true })
+      return { status: 0 }
+    }
+    if (command === 'ditto') {
+      const destination = args[1] as string
+      mkdirSync(destination, { recursive: true })
+      writeFileSync(join(destination, 'binary'), 'x')
+      return { status: 0 }
+    }
+    return { status: 0 }
+  }
+  return { run, calls }
+}
+
+describe('installing a prepared build', () => {
+  it('mounts read-only, copies the app, clears quarantine and detaches', async () => {
+    const root = scratch()
+    const dmg = join(root, 'DSH-Fita-Dev-2.0.10.dmg')
+    writeFileSync(dmg, 'dmg')
+    const destination = join(root, 'Applications', 'DSH Fita Dev.app')
+    const { run, calls } = dmgRunner(['DSH Fita Dev.app'])
+
+    const result = await installFitaPreparedBuild({ dmgPath: dmg, destination, run })
+
+    expect(result).toEqual({ status: 'installed', appPath: destination })
+    expect(existsSync(join(destination, 'binary'))).toBe(true)
+    const attach = calls.find(([, args]) => args[0] === 'attach')
+    expect(attach?.[1]).toContain('-readonly')
+    expect(attach?.[1]).toContain('-nobrowse')
+    expect(calls).toContainEqual(['xattr', ['-dr', 'com.apple.quarantine', destination]])
+    expect(calls.some(([command, args]) => command === 'hdiutil' && args[0] === 'detach')).toBe(true)
+  })
+
+  it('replaces an existing bundle with the prepared one', async () => {
+    const root = scratch()
+    const dmg = join(root, 'a.dmg')
+    writeFileSync(dmg, 'dmg')
+    const destination = join(root, 'Applications', 'DSH Fita Dev.app')
+    mkdirSync(join(destination, 'old'), { recursive: true })
+    const { run } = dmgRunner(['DSH Fita Dev.app'])
+
+    const result = await installFitaPreparedBuild({ dmgPath: dmg, destination, run })
+
+    expect(result.status).toBe('installed')
+    expect(existsSync(join(destination, 'old'))).toBe(false)
+    expect(existsSync(join(destination, 'binary'))).toBe(true)
+  })
+
+  it('names a mount failure and never copies anything', async () => {
+    const root = scratch()
+    const dmg = join(root, 'a.dmg')
+    writeFileSync(dmg, 'dmg')
+    const destination = join(root, 'Applications', 'DSH Fita Dev.app')
+    const run = vi.fn((command: string): FitaCommandResult => ({ status: command === 'hdiutil' ? 1 : 0 }))
+
+    const result = await installFitaPreparedBuild({ dmgPath: dmg, destination, run })
+
+    expect(result).toEqual({ status: 'failed', reason: 'mount' })
+    expect(existsSync(destination)).toBe(false)
+  })
+
+  it('refuses a DMG that does not carry exactly one app', async () => {
+    const root = scratch()
+    const dmg = join(root, 'a.dmg')
+    writeFileSync(dmg, 'dmg')
+    const destination = join(root, 'Applications', 'DSH Fita Dev.app')
+
+    const none = await installFitaPreparedBuild({ dmgPath: dmg, destination, run: dmgRunner([]).run })
+    expect(none).toEqual({ status: 'failed', reason: 'no-app' })
+
+    const two = await installFitaPreparedBuild({
+      dmgPath: dmg,
+      destination,
+      run: dmgRunner(['DSH Fita Dev.app', 'Something Else.app']).run,
+    })
+    expect(two).toEqual({ status: 'failed', reason: 'no-app' })
+  })
+
+  it('names a copy failure and a quarantine failure, and still detaches', async () => {
+    const root = scratch()
+    const dmg = join(root, 'a.dmg')
+    writeFileSync(dmg, 'dmg')
+    const destination = join(root, 'Applications', 'DSH Fita Dev.app')
+    const base = dmgRunner(['DSH Fita Dev.app'])
+    const run = (command: string, args: readonly string[]): FitaCommandResult =>
+      command === 'ditto' ? { status: 1 } : base.run(command, args)
+
+    const copy = await installFitaPreparedBuild({ dmgPath: dmg, destination, run })
+    expect(copy).toEqual({ status: 'failed', reason: 'copy' })
+    // The mount is released on the failure path too, through the same runner.
+    expect(base.calls.some(([command, args]) => command === 'hdiutil' && args[0] === 'detach')).toBe(true)
+
+    const quarantineBase = dmgRunner(['DSH Fita Dev.app'])
+    const quarantine = await installFitaPreparedBuild({
+      dmgPath: dmg,
+      destination,
+      run: (command, args) => command === 'xattr' ? { status: 1 } : quarantineBase.run(command, args),
+    })
+    // The app is unsigned, so a quarantine that cannot be cleared is not an install.
+    expect(quarantine).toEqual({ status: 'failed', reason: 'quarantine' })
+  })
+})
