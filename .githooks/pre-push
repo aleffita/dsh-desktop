@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# The pipeline's gate, run before the pipeline sees it.
+#
+# `yarn check` is what CI runs on a pull request. Running it here is what makes a push
+# pipeline-safe instead of hopeful: if this passes, the same command passes there.
+set -euo pipefail
+root="$(git rev-parse --show-toplevel)"
+cd "$root"
+
+echo "pre-push: yarn check (the same command CI runs)"
+corepack yarn check

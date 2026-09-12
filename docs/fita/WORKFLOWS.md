@@ -36,6 +36,29 @@ run the same gates, record what conflicted and why). It gets a workflow and a lo
 per run, so a future agent can see when it last happened and what it cost, instead of
 guessing whether the fork is current.
 
+## Gates run locally first, and the pipeline is what enforces them
+
+The order is deliberate: the same checks run before a commit, before a push, and again in CI —
+and CI is not a different set of checks, it is the same command.
+
+| when | command | what it catches |
+| --- | --- | --- |
+| `pre-commit` (`.githooks/pre-commit`) | `check:diff`, `check:desktop-variants`, `check:fita-channels` | whitespace CI rejects, one edition's file copied over the other's, a stale generated registry — three mistakes that actually happened here |
+| `pre-push` (`.githooks/pre-push`) | `yarn check` | the whole gate, before the pipeline sees it |
+| CI (`check` job) | `yarn check` | the same command, required for a merge |
+
+The hooks live in the repository and are enabled with `yarn hooks:install`
+(`git config core.hooksPath .githooks`), so they travel with a clone, and they call the same
+node scripts CI calls rather than copies of them — what runs locally cannot drift from what runs
+in the pipeline.
+
+`dev` is protected: `changes` and `check` are required status checks, the branch must be up to
+date with `dev` before merging, and force pushes and deletions are refused. A red pipeline
+blocks a merge rather than advising against it. The conditional jobs (`desktop-macos`,
+`desktop-windows`, `upstream-command-windows`) are deliberately *not* required: they only run
+when a product path changes, and a required check that never reports on a docs-only pull request
+would block that pull request forever — a worse failure than the one it would prevent.
+
 ## Gates a change must pass before it is a release
 
 1. `yarn check` on the workspace it touches (layout, variants, vendored runtime, bilingual
