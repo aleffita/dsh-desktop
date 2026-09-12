@@ -1,6 +1,8 @@
 /** DSH Desktop executable: minimal Electron bootstrap around the Host Cordis root. */
 
 import { startIsolatedDesktopHost } from './host-process.ts'
+import { parseFitaHandoverArguments, runFitaHandoverProcess } from './fita-handover.ts'
+import { fitaDefaultRunner } from './fita-install.ts'
 import { app, crashReporter, safeStorage, shell } from 'electron'
 import { randomUUID } from 'node:crypto'
 import { existsSync } from 'node:fs'
@@ -381,6 +383,19 @@ async function mirrorDesktopProfilePreferences(
 
 /** Start one Electron process and leave lifetime to the mounted desktop plugin. */
 async function start(): Promise<void> {
+  // A hand-over process is this same app relaunched to replace a bundle that is no longer
+  // in use, and it runs before the single-instance lock on purpose: the app it replaces
+  // still holds that lock while it exits, so taking the lock first would end the hand-over
+  // before it began.
+  const handover = parseFitaHandoverArguments(process.argv)
+  if (handover !== undefined) {
+    await runFitaHandoverProcess({
+      request: handover,
+      run: fitaDefaultRunner,
+      exit: code => { app.exit(code) },
+    })
+    return
+  }
   if (!app.requestSingleInstanceLock()) {
     app.quit()
     return

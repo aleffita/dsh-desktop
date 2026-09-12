@@ -282,3 +282,39 @@ export async function waitForProcessExit(options: FitaProcessWaitOptions): Promi
   const interval = options.intervalMs ?? FITA_WAIT_INTERVAL_MS
   while (isAlive(options.pid)) await pause(interval)
 }
+
+/** Inputs for running this process as the hand-over it was started as. */
+export interface FitaHandoverProcessOptions {
+  /** Request the process was started with. */
+  readonly request: FitaHandoverRequest
+  /** Ends the process; the hand-over process has nothing left to do afterwards. */
+  readonly exit: (code: number) => void
+  /** Command runner for the layer itself. */
+  readonly run?: FitaCommandRunner
+  /** Wait for the app that owns the bundle; defaults to probing its process id. */
+  readonly waitForExit?: () => Promise<void>
+}
+
+/**
+ * Run this process as a hand-over: wait, apply the layer, relaunch, then end.
+ *
+ * Called before the single-instance lock is taken, because the app this process replaces
+ * still holds that lock while it exits — taking it first would end the hand-over before it
+ * began. The exit code is the only thing the parent could have observed, so a failure is
+ * reported as one.
+ * @param options - the request, an exit function, and optional runner and wait.
+ * @returns what the layer did, for the caller to log before exiting.
+ */
+export async function runFitaHandoverProcess(
+  options: FitaHandoverProcessOptions,
+): Promise<FitaHandoverLayerOutcome> {
+  const outcome = await runFitaHandoverLayer({
+    request: options.request,
+    ...(options.run === undefined ? {} : { run: options.run }),
+    waitForExit: options.waitForExit ?? (async () => {
+      await waitForProcessExit({ pid: options.request.waitForPid })
+    }),
+  })
+  options.exit(outcome.status === 'failed' ? 1 : 0)
+  return outcome
+}

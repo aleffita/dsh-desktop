@@ -6,6 +6,7 @@ import {
   fitaHandoverArguments,
   parseFitaHandoverArguments,
   runFitaHandoverLayer,
+  runFitaHandoverProcess,
   startFitaHandover,
   waitForProcessExit,
   type FitaHandoverRequest,
@@ -225,5 +226,62 @@ describe('waiting for the app to exit', () => {
   it('asks the operating system by default, without affecting the process', async () => {
     // Our own pid is alive; a pid that cannot exist is not. Neither may be signalled.
     await expect(waitForProcessExit({ pid: process.pid + 1_000_000, intervalMs: 1 })).resolves.toBeUndefined()
+  })
+})
+
+describe('running as the hand-over process', () => {
+  it('waits, applies the layer and exits zero on success', async () => {
+    const root = scratch()
+    const resources = join(root, 'DSH Fita Dev.app', 'Contents', 'Resources')
+    mkdirSync(resources, { recursive: true })
+    writeFileSync(join(resources, 'app.asar'), 'old')
+    const order: string[] = []
+    const run = (command: string, args: readonly string[]): FitaCommandResult => {
+      if (command === 'ditto') {
+        order.push('extract')
+        const extracted = join(args[args.length - 1] as string, 'DSH Fita Dev.app', 'Contents', 'Resources')
+        mkdirSync(extracted, { recursive: true })
+        writeFileSync(join(extracted, 'app.asar'), 'new')
+        return { status: 0 }
+      }
+      if (command === 'open') order.push('open')
+      return { status: 0 }
+    }
+
+    const outcome = await runFitaHandoverProcess({
+      request: { layer: 'payload', waitForPid: 1, zipPath: join(root, 'a.zip'), appPath: join(root, 'DSH Fita Dev.app'), staging: join(root, 'staging') },
+      run,
+      waitForExit: async () => { order.push('wait') },
+      exit: code => { order.push(`exit:${String(code)}`) },
+    })
+
+    expect(outcome.status).toBe('applied')
+    expect(order).toEqual(['wait', 'extract', 'open', 'exit:0'])
+  })
+
+  it('exits non-zero when the layer failed, and says which reason', async () => {
+    const root = scratch()
+    const codes: number[] = []
+    const outcome = await runFitaHandoverProcess({
+      request: { layer: 'full', waitForPid: 1, dmgPath: join(root, 'a.dmg'), destination: join(root, 'Applications', 'DSH Fita Dev.app') },
+      run: () => ({ status: 1 }),
+      waitForExit: async () => {},
+      exit: code => { codes.push(code) },
+    })
+
+    expect(outcome).toMatchObject({ layer: 'full', status: 'failed', reason: 'mount' })
+    expect(codes).toEqual([1])
+  })
+
+  it('waits for the pid it was told to wait for by default', async () => {
+    const root = scratch()
+    const seen: number[] = []
+    await runFitaHandoverProcess({
+      request: { layer: 'full', waitForPid: 4_000_001, dmgPath: join(root, 'a.dmg'), destination: join(root, 'x.app') },
+      run: () => ({ status: 1 }),
+      waitForExit: async () => { seen.push(4_000_001) },
+      exit: () => {},
+    })
+    expect(seen).toEqual([4_000_001])
   })
 })
