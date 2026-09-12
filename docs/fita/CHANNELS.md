@@ -191,22 +191,28 @@ app.asar.unpacked      54 MB   (node-pty, sharp, ripgrep, fs-ext, koffi)
 DMG                   278 MB   (the compressed bundle)
 ```
 
-What our packaging publishes today is only the second layer:
+What a channel publishes, measured on the dev build after the zip target was added:
 
 ```yaml
 # dev-mac.yml
 version: 2.0.9
 files:
-  - url: DSH-Fita-Dev-2.0.9-universal.dmg
-    sha512: LltbtgDwvLsh+uhwJcgz32aqxKY9tX7qq7T5KYzL6VcBbUJ6kej362KnWQq03FU3UAy8Z3vxjUAe9laKAnpP4w==
-    size: 278583798
-path: DSH-Fita-Dev-2.0.9-universal.dmg
+  - url: DSH-Fita-Dev-2.0.9-universal.zip   # 269 MB — the layer an app updates itself from
+    sha512: C6l5IaYNuNBLAWdYk8xY7cQe6N629tt9Mu877WCXSDm7R4dxYoK2vzpm3skEPwCrBNnYg95CrjuaURSrYEWTfQ==
+    size: 269199071
+  - url: DSH-Fita-Dev-2.0.9-universal.dmg   # 279 MB — the full install
+    sha512: ZNIQEG93P75AyG3ND/IefMF/pMMBVQ/KBr/thWpbDrESoojJJyOIJ3In/GJFtov3agd+6bl+E2FR+tDcH3VHLw==
+    size: 278573399
+path: DSH-Fita-Dev-2.0.9-universal.zip
 ```
 
-So a channel has **no in-app update artifact at all**: the feed names one file, and it is the
-DMG. electron-updater's macOS path expects a `zip` target for that job — the DMG is the manual
-install — which means per-channel packaging has to emit both targets before either layer can be
-used in-app:
+Both artifacts ship with a blockmap (`*.zip.blockmap`, `*.dmg.blockmap`), so the delta layer
+exists for the light one, and `fita-channel.json` records `zip` and `zipSha256` beside the DMG's,
+with the digest equal to `shasum -a 256` of the file on disk.
+
+Before the zip target a channel had **no in-app update artifact at all**: the feed named one
+file, and it was the DMG. electron-updater's macOS path expects a `zip` for that job — the DMG is
+the manual install — so per-channel packaging emits both targets:
 
 | layer | artifact | touches | used when |
 | --- | --- | --- | --- |
