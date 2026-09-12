@@ -14,6 +14,7 @@ import {
   FITA_HANDOVER_DESTINATION_FLAG,
   FITA_HANDOVER_DMG_FLAG,
   FITA_HANDOVER_LAYER_FLAG,
+  FITA_HANDOVER_WAIT_PID_FLAG,
   parseFitaHandoverArguments,
 } from '../src/fita-handover.ts'
 
@@ -196,20 +197,23 @@ describe('hand-over arguments', () => {
     expect(parseFitaHandoverArguments([
       'DSH Fita Dev',
       `${FITA_HANDOVER_LAYER_FLAG}=full`,
+      `${FITA_HANDOVER_WAIT_PID_FLAG}=4242`,
       `${FITA_HANDOVER_DMG_FLAG}=/cache/dev/a.dmg`,
       `${FITA_HANDOVER_DESTINATION_FLAG}=/home/operator/Applications/DSH Fita Dev.app`,
     ])).toEqual({
       layer: 'full',
+      waitForPid: 4242,
       dmgPath: '/cache/dev/a.dmg',
       destination: '/home/operator/Applications/DSH Fita Dev.app',
     })
     expect(parseFitaHandoverArguments([
       'DSH Fita Dev',
-      FITA_HANDOVER_LAYER_FLAG, 'full',
+      FITA_HANDOVER_LAYER_FLAG, 'full', FITA_HANDOVER_WAIT_PID_FLAG, '4242',
       FITA_HANDOVER_DMG_FLAG, '/cache/dev/a.dmg',
       FITA_HANDOVER_DESTINATION_FLAG, '/home/operator/Applications/DSH Fita Dev.app',
     ])).toEqual({
       layer: 'full',
+      waitForPid: 4242,
       dmgPath: '/cache/dev/a.dmg',
       destination: '/home/operator/Applications/DSH Fita Dev.app',
     })
@@ -220,8 +224,8 @@ describe('hand-over arguments', () => {
   })
 
   it('refuses a request missing either value', () => {
-    expect(parseFitaHandoverArguments([`${FITA_HANDOVER_LAYER_FLAG}=full`, `${FITA_HANDOVER_DMG_FLAG}=/a.dmg`])).toBeUndefined()
-    expect(parseFitaHandoverArguments([`${FITA_HANDOVER_LAYER_FLAG}=full`, `${FITA_HANDOVER_DESTINATION_FLAG}=/b.app`])).toBeUndefined()
+    expect(parseFitaHandoverArguments([`${FITA_HANDOVER_LAYER_FLAG}=full`, `${FITA_HANDOVER_WAIT_PID_FLAG}=1`, `${FITA_HANDOVER_DMG_FLAG}=/a.dmg`])).toBeUndefined()
+    expect(parseFitaHandoverArguments([`${FITA_HANDOVER_LAYER_FLAG}=full`, `${FITA_HANDOVER_WAIT_PID_FLAG}=1`, `${FITA_HANDOVER_DESTINATION_FLAG}=/b.app`])).toBeUndefined()
     // A layer with no name is not a hand-over.
     expect(parseFitaHandoverArguments([`${FITA_HANDOVER_DMG_FLAG}=/a.dmg`, `${FITA_HANDOVER_DESTINATION_FLAG}=/b.app`])).toBeUndefined()
   })
@@ -229,17 +233,19 @@ describe('hand-over arguments', () => {
   it('treats an empty value as absent rather than as a path', () => {
     expect(parseFitaHandoverArguments([
       `${FITA_HANDOVER_LAYER_FLAG}=full`,
+      `${FITA_HANDOVER_WAIT_PID_FLAG}=4242`,
       `${FITA_HANDOVER_DMG_FLAG}=`,
       `${FITA_HANDOVER_DESTINATION_FLAG}=/b.app`,
     ])).toBeUndefined()
     expect(parseFitaHandoverArguments([
       `${FITA_HANDOVER_LAYER_FLAG}=full`,
+      `${FITA_HANDOVER_WAIT_PID_FLAG}=4242`,
       `${FITA_HANDOVER_DMG_FLAG}=/a.dmg`,
       `${FITA_HANDOVER_DESTINATION_FLAG}=`,
     ])).toBeUndefined()
     // A flag followed by another flag has no value.
     expect(parseFitaHandoverArguments([
-      FITA_HANDOVER_LAYER_FLAG, 'full', FITA_HANDOVER_DMG_FLAG, FITA_HANDOVER_DESTINATION_FLAG, '/b.app',
+      FITA_HANDOVER_LAYER_FLAG, 'full', FITA_HANDOVER_WAIT_PID_FLAG, '4242', FITA_HANDOVER_DMG_FLAG, FITA_HANDOVER_DESTINATION_FLAG, '/b.app',
     ])).toBeUndefined()
   })
 })

@@ -15,6 +15,8 @@ import { applyFitaPayload } from './fita-payload.ts'
 export type FitaHandoverRequest =
   | {
     readonly layer: 'payload'
+    /** Process id of the app that must exit before anything is replaced. */
+    readonly waitForPid: number
     /** Verified zip the payload comes from. */
     readonly zipPath: string
     /** Bundle whose code payload is replaced. */
@@ -24,6 +26,8 @@ export type FitaHandoverRequest =
   }
   | {
     readonly layer: 'full'
+    /** Process id of the app that must exit before anything is replaced. */
+    readonly waitForPid: number
     /** Verified DMG the install comes from. */
     readonly dmgPath: string
     /** Bundle the install replaces. */
@@ -45,6 +49,8 @@ export const FITA_HANDOVER_ZIP_FLAG = '--dsh-fita-handover-zip'
 export const FITA_HANDOVER_APP_FLAG = '--dsh-fita-handover-app'
 /** Flag carrying the directory a payload hand-over extracts into. */
 export const FITA_HANDOVER_STAGING_FLAG = '--dsh-fita-handover-staging'
+/** Flag carrying the process id of the app the child must wait for. */
+export const FITA_HANDOVER_WAIT_PID_FLAG = '--dsh-fita-handover-wait-pid'
 /** Flag carrying the verified DMG of a full hand-over. */
 export const FITA_HANDOVER_DMG_FLAG = '--dsh-fita-handover-dmg'
 /** Flag carrying the bundle a full hand-over replaces. */
@@ -71,19 +77,23 @@ function argumentValue(argv: readonly string[], flag: string): string | undefine
  * @returns the request, or undefined when this is not a hand-over process.
  */
 export function parseFitaHandoverArguments(argv: readonly string[]): FitaHandoverRequest | undefined {
+  const waitForPid = Number(argumentValue(argv, FITA_HANDOVER_WAIT_PID_FLAG) ?? Number.NaN)
+  // Without the parent's id the child cannot know when the bundle became free, and
+  // replacing it while the app runs is the one thing this must never do.
+  if (!Number.isSafeInteger(waitForPid) || waitForPid <= 0) return undefined
   const layer = argumentValue(argv, FITA_HANDOVER_LAYER_FLAG)
   if (layer === 'payload') {
     const zipPath = argumentValue(argv, FITA_HANDOVER_ZIP_FLAG)
     const appPath = argumentValue(argv, FITA_HANDOVER_APP_FLAG)
     const staging = argumentValue(argv, FITA_HANDOVER_STAGING_FLAG)
     if (zipPath === undefined || appPath === undefined || staging === undefined) return undefined
-    return { layer: 'payload', zipPath, appPath, staging }
+    return { layer: 'payload', waitForPid, zipPath, appPath, staging }
   }
   if (layer === 'full') {
     const dmgPath = argumentValue(argv, FITA_HANDOVER_DMG_FLAG)
     const destination = argumentValue(argv, FITA_HANDOVER_DESTINATION_FLAG)
     if (dmgPath === undefined || destination === undefined) return undefined
-    return { layer: 'full', dmgPath, destination }
+    return { layer: 'full', waitForPid, dmgPath, destination }
   }
   return undefined
 }
@@ -171,9 +181,11 @@ async function relaunchOutcome(
  * @returns the argument list, without the executable.
  */
 export function fitaHandoverArguments(request: FitaHandoverRequest): string[] {
+  const wait = `${FITA_HANDOVER_WAIT_PID_FLAG}=${String(request.waitForPid)}`
   if (request.layer === 'payload') {
     return [
       `${FITA_HANDOVER_LAYER_FLAG}=payload`,
+      wait,
       `${FITA_HANDOVER_ZIP_FLAG}=${request.zipPath}`,
       `${FITA_HANDOVER_APP_FLAG}=${request.appPath}`,
       `${FITA_HANDOVER_STAGING_FLAG}=${request.staging}`,
@@ -181,6 +193,7 @@ export function fitaHandoverArguments(request: FitaHandoverRequest): string[] {
   }
   return [
     `${FITA_HANDOVER_LAYER_FLAG}=full`,
+    wait,
     `${FITA_HANDOVER_DMG_FLAG}=${request.dmgPath}`,
     `${FITA_HANDOVER_DESTINATION_FLAG}=${request.destination}`,
   ]

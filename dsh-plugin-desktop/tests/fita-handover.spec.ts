@@ -46,7 +46,7 @@ describe('layer-aware hand-over', () => {
     }
 
     const outcome = await runFitaHandoverLayer({
-      request: { layer: 'payload', zipPath: join(root, 'a.zip'), appPath: join(root, 'DSH Fita Dev.app'), staging: join(root, 'staging') },
+      request: { layer: 'payload', waitForPid: 4242, zipPath: join(root, 'a.zip'), appPath: join(root, 'DSH Fita Dev.app'), staging: join(root, 'staging') },
       run,
       waitForExit: async () => { order.push('wait') },
     })
@@ -69,7 +69,7 @@ describe('layer-aware hand-over', () => {
     }
 
     const outcome = await runFitaHandoverLayer({
-      request: { layer: 'payload', zipPath: join(root, 'a.zip'), appPath: join(root, 'DSH Fita Dev.app'), staging: join(root, 'staging') },
+      request: { layer: 'payload', waitForPid: 4242, zipPath: join(root, 'a.zip'), appPath: join(root, 'DSH Fita Dev.app'), staging: join(root, 'staging') },
       run,
       waitForExit: async () => {},
     })
@@ -102,7 +102,7 @@ describe('layer-aware hand-over', () => {
     }
 
     const outcome = await runFitaHandoverLayer({
-      request: { layer: 'full', dmgPath: join(root, 'a.dmg'), destination: join(root, 'Applications', 'DSH Fita Dev.app') },
+      request: { layer: 'full', waitForPid: 4242, dmgPath: join(root, 'a.dmg'), destination: join(root, 'Applications', 'DSH Fita Dev.app') },
       run,
       waitForExit: async () => { order.push('wait') },
     })
@@ -128,7 +128,7 @@ describe('layer-aware hand-over', () => {
     }
 
     const outcome = await runFitaHandoverLayer({
-      request: { layer: 'payload', zipPath: join(root, 'a.zip'), appPath: join(root, 'DSH Fita Dev.app'), staging: join(root, 'staging') },
+      request: { layer: 'payload', waitForPid: 4242, zipPath: join(root, 'a.zip'), appPath: join(root, 'DSH Fita Dev.app'), staging: join(root, 'staging') },
       run,
       waitForExit: async () => {},
     })
@@ -141,12 +141,14 @@ describe('layer-aware hand-over', () => {
 describe('starting a hand-over', () => {
   const payload: FitaHandoverRequest = {
     layer: 'payload',
+    waitForPid: 4321,
     zipPath: '/cache/dev/a.zip',
     appPath: '/home/operator/Applications/DSH Fita Dev.app',
     staging: '/cache/dev/staging',
   }
   const full: FitaHandoverRequest = {
     layer: 'full',
+    waitForPid: 4321,
     dmgPath: '/cache/dev/a.dmg',
     destination: '/home/operator/Applications/DSH Fita Dev.app',
   }
@@ -172,5 +174,34 @@ describe('starting a hand-over', () => {
     // Detached and silent: the child has to outlive this process and cannot hold its streams.
     expect(calls[0]?.[2]).toEqual({ detached: true, stdio: 'ignore' })
     expect(parseFitaHandoverArguments(['x', ...args])).toEqual(payload)
+  })
+})
+
+describe('the pid a hand-over waits for', () => {
+  const request: FitaHandoverRequest = {
+    layer: 'full',
+    waitForPid: 987,
+    dmgPath: '/cache/dev/a.dmg',
+    destination: '/home/operator/Applications/DSH Fita Dev.app',
+  }
+
+  it('travels with the request and comes back unchanged', () => {
+    expect(parseFitaHandoverArguments(['x', ...fitaHandoverArguments(request)])).toEqual(request)
+  })
+
+  it('refuses a request with no usable pid', () => {
+    const args = fitaHandoverArguments(request)
+    // A hand-over cannot replace a bundle without knowing when it became free.
+    expect(parseFitaHandoverArguments(args.filter(argument => !argument.startsWith('--dsh-fita-handover-wait-pid')))).toBeUndefined()
+    expect(parseFitaHandoverArguments(args.map(argument => argument.startsWith('--dsh-fita-handover-wait-pid')
+      ? '--dsh-fita-handover-wait-pid=nope'
+      : argument))).toBeUndefined()
+    expect(parseFitaHandoverArguments(args.map(argument => argument.startsWith('--dsh-fita-handover-wait-pid')
+      ? '--dsh-fita-handover-wait-pid=0'
+      : argument))).toBeUndefined()
+    // The first occurrence wins when a flag repeats, the same convention as the rest of
+    // the settings API arguments; the test states it rather than leaving it implicit.
+    const repeated = [...args, '--dsh-fita-handover-wait-pid=1']
+    expect(parseFitaHandoverArguments(repeated)?.waitForPid).toBe(987)
   })
 })
